@@ -1,8 +1,10 @@
 //! 浏览器后端：自研 CDP（Chrome/Edge）与 Marionette（Firefox）双协议（docs/adr/0002-browser-driver-protocols.md）。
 //!
-//! 两个后端共用 `jsonrpc` 消息框架；`fake` 供测试与 CI。
+//! Marionette 后端（Firefox）V1 已实现（TCP 帧协议，见 marionette.rs）；CDP 后端（Chrome/Edge）
+//! 待实现（WebSocket，复用 `jsonrpc` 消息类型）。两个后端共用二进制发现 `discovery`；`fake` 供测试。
 
 pub mod cdp;
+pub mod discovery;
 pub mod fake;
 pub mod jsonrpc;
 pub mod marionette;
@@ -36,11 +38,11 @@ impl fmt::Display for BrowserKind {
 
 /// 后端注册表：`--browser` 参数值 → `Box<dyn BrowserDriver>`。
 ///
-/// 骨架阶段仅 `Fake` 可用；CDP / Marionette 为 V1 待实现桩（design.md §6.5 / §10.2）。
-pub fn resolve(kind: BrowserKind) -> Result<Box<dyn BrowserDriver>, Error> {
+/// Firefox（Marionette）V1 已实现；Chrome（CDP）为待实现桩（design.md §6.5 / §10.2）。
+pub async fn resolve(kind: BrowserKind) -> Result<Box<dyn BrowserDriver>, Error> {
     match kind {
         BrowserKind::Fake => Ok(Box::<FakeDriver>::default()),
-        BrowserKind::Chrome => cdp::CdpDriver::spawn(),
-        BrowserKind::Firefox => marionette::MarionetteDriver::spawn(),
+        BrowserKind::Chrome => cdp::CdpDriver::spawn().await,
+        BrowserKind::Firefox => marionette::MarionetteDriver::spawn().await,
     }
 }

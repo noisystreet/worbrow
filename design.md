@@ -112,8 +112,8 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 └────────────────────────────────────────────────────────┘
 ```
 
-> 注：骨架阶段已实现 `engines/duckduckgo.rs` 与 `drivers/fake.rs`；`engines/bing.rs`、
-> `engines/baidu.rs` 与真实驱动（cdp/marionette）为 V1 目标（见 §13 演进路线）。
+> 注：已实现 `engines/duckduckgo.rs`、`drivers/marionette.rs`（Firefox）与 `drivers/fake.rs`；
+> `engines/bing.rs`、`engines/baidu.rs` 与 `drivers/cdp.rs`（Chrome/Edge）为 V1 后续目标（见 §13）。
 
 规则：
 1. `domain` 不依赖任何框架/IO 细节（无 serde 之外的依赖）；
@@ -417,8 +417,9 @@ CI 不依赖真实浏览器，保证可复现。
 
 ## 13. 演进路线
 
-- **V1（MVP）**：Bing + DuckDuckGo；自研 CDP 后端（Chrome/Edge）＋ Marionette 后端（Firefox）；
-  `--browser` 切换；`--json`/超时/验证码检测/截图；`search doctor`
+- **V1（MVP，进行中）**：DuckDuckGo 引擎 + Marionette 后端（Firefox）已完成；
+  `--json`/超时/验证码检测/截图/`search doctor` 已就绪。
+  待办：CDP 后端（Chrome/Edge）、Bing 引擎
 - **V2**：百度、Google（预期高拦截，降级为"尽力"）；`--connect` 连接常驻浏览器复用会话；
   结果去重归一化加强；新增 `--retry`（瞬时网络错误重试）；若需网络拦截等深度控制，
   引入 chromiumoxide 作第二 CDP 实现

@@ -24,7 +24,7 @@ use crate::ports::BrowserDriver;
 pub struct CdpDriver;
 
 impl CdpDriver {
-    pub fn spawn() -> Result<Box<dyn BrowserDriver>, Error> {
+    pub async fn spawn() -> Result<Box<dyn BrowserDriver>, Error> {
         Err(Error::NotImplemented(
             "CDP 后端待实现（V1，见 docs/adr/0002-browser-driver-protocols.md）".into(),
         ))

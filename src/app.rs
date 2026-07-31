@@ -56,7 +56,7 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
     // 3. 选浏览器后端（测试可注入）
     let mut driver = match config.driver {
         Some(d) => d,
-        None => crate::drivers::resolve(config.browser)?,
+        None => crate::drivers::resolve(config.browser).await?,
     };
 
     let query = SearchQuery {

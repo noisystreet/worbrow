@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use rplay_search::app::{self, Config};
 use rplay_search::cli::{BrowserArg, Cli, Command, LogLevelArg};
-use rplay_search::drivers::BrowserKind;
+use rplay_search::drivers::{self, BrowserKind};
 use rplay_search::engines;
 use rplay_search::error::Error;
 use rplay_search::output;
@@ -90,10 +90,14 @@ fn doctor() -> ExitCode {
     }
     println!("浏览器后端:");
     println!("  - fake: 可用（测试）");
-    println!("  - chrome (CDP): 待实现（V1，见 docs/adr/0002-browser-driver-protocols.md）");
-    println!(
-        "  - firefox (Marionette): 待实现（V1，见 docs/adr/0002-browser-driver-protocols.md）"
-    );
+    println!("  - chrome (CDP): 待实现（V1）");
+    match drivers::discovery::find_browser(BrowserKind::Firefox) {
+        Ok(p) => println!(
+            "  - firefox (Marionette): 已实现（V1），二进制: {}",
+            p.display()
+        ),
+        Err(e) => println!("  - firefox (Marionette): 不可用 - {e}"),
+    }
     println!("=== done ===");
     ExitCode::SUCCESS
 }
