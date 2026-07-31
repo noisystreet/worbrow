@@ -77,6 +77,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-002](docs/adr/0002-browser-driver-protocols.md) | 浏览器驱动 = 自研双协议后端（CDP + Marionette） | 已接受 |
 | [ADR-003](docs/adr/0003-search-url-direct.md) | 搜索方式 = URL 直访优先，交互原语备用 | 已接受 |
 | [ADR-004](docs/adr/0004-output-contract-json.md) | 输出契约 = JSON schema v1 + 语义化退出码 | 已接受 |
+| [ADR-005](docs/adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`search mcp`，rmcp 2.2） | 已接受 |
 
 ---
 
@@ -418,7 +419,8 @@ CI 不依赖真实浏览器，保证可复现。
 ## 13. 演进路线
 
 - **V1（MVP，进行中）**：DuckDuckGo 引擎 + Marionette 后端（Firefox）已完成；
-  `--json`/超时/验证码检测/截图/`search doctor` 已就绪。
+  `--json`/超时/验证码检测/截图/`search doctor` 已就绪；MCP stdio server
+  （`search mcp`，rmcp 2.2，见 ADR-005）已完成。
   待办：CDP 后端（Chrome/Edge）、Bing 引擎
 - **V2**：百度、Google（预期高拦截，降级为"尽力"）；`--connect` 连接常驻浏览器复用会话；
   结果去重归一化加强；新增 `--retry`（瞬时网络错误重试）；若需网络拦截等深度控制，

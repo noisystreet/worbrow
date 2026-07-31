@@ -13,5 +13,7 @@ pub mod drivers;
 pub mod engines;
 pub mod error;
 pub mod extract;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod output;
 pub mod ports;

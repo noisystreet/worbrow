@@ -41,7 +41,8 @@ impl fmt::Display for BrowserKind {
 /// Firefox（Marionette）V1 已实现；Chrome（CDP）为待实现桩（design.md §6.5 / §10.2）。
 pub async fn resolve(kind: BrowserKind) -> Result<Box<dyn BrowserDriver>, Error> {
     match kind {
-        BrowserKind::Fake => Ok(Box::<FakeDriver>::default()),
+        // fake：冒烟/测试用，返回可解析的模拟结果页（SMOKE_HTML），非空页面
+        BrowserKind::Fake => Ok(Box::new(FakeDriver::with_html(fake::SMOKE_HTML))),
         BrowserKind::Chrome => cdp::CdpDriver::spawn().await,
         BrowserKind::Firefox => marionette::MarionetteDriver::spawn().await,
     }

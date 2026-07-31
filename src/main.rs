@@ -30,6 +30,8 @@ fn run_cli() -> ExitCode {
         return match cmd {
             Command::Doctor => doctor(),
             Command::List => list_engines(),
+            #[cfg(feature = "mcp")]
+            Command::Mcp => mcp_main(),
         };
     }
 
@@ -113,6 +115,28 @@ fn list_engines() -> ExitCode {
         println!("{name}");
     }
     ExitCode::SUCCESS
+}
+
+/// `search mcp`：以 MCP stdio server 形态运行（docs/adr/0005-mcp-stdio-server.md）。
+///
+/// 与普通搜索不同：stdout 是 MCP JSON-RPC 通道，**不**走 `finish()` 输出契约包；
+/// 工具结果经 MCP `tools/call` 响应返回。错误仅写 stderr + exit 1。
+#[cfg(feature = "mcp")]
+fn mcp_main() -> ExitCode {
+    let runtime = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(e) => {
+            eprintln!("tokio runtime 初始化失败: {e}");
+            return ExitCode::from(1);
+        }
+    };
+    match runtime.block_on(rplay_search::mcp::serve_stdio()) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("MCP server 退出: {e}");
+            ExitCode::from(1)
+        }
+    }
 }
 
 /// 初始化 stderr 日志（默认 off，避免污染 stdout 契约）。

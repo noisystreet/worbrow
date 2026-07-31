@@ -61,6 +61,9 @@ pub enum Command {
     Doctor,
     /// 列出可用搜索引擎
     List,
+    /// 以 MCP stdio server 形态运行（需 `--features mcp` 编译）
+    #[cfg(feature = "mcp")]
+    Mcp,
 }
 
 /// 搜索引擎（clap value_enum）。

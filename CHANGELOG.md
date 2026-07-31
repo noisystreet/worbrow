@@ -6,6 +6,10 @@
 
 ### Added
 
+- **MCP stdio server（`search mcp`，需 `--features mcp` 编译）**：rmcp 2.2 官方
+  SDK，stdio 传输；`search` 工具（query/engine/browser/max_results/timeout）复用
+  `app::run`，成功/失败包 JSON 经 `tools/call` 返回；`browser=fake` 冒烟免浏览器；
+  集成测试覆盖握手/tools/list/tools/call（见 docs/adr/0005-mcp-stdio-server.md）
 - 项目骨架（design.md §5.2 目录结构）：domain/ports/app/cli/output 分层
 - 自研 JSON-RPC 消息框架（`drivers/jsonrpc.rs`，CDP 与 Marionette 后端共用消息类型）
 - DuckDuckGo 引擎适配器（html 端点，URL 直访 + scraper 解析）

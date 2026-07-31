@@ -22,6 +22,7 @@ async-trait = "0.1.91"
 base64 = "0.23.0"
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.4", features = ["derive"] }
+rmcp = { version = "2.2.0", features = ["schemars", "transport-io"], optional = true }
 scraper = "0.27.0"
 serde = { version = "1.0.229", features = ["derive"] }
 serde_json = "1.0.151"
@@ -36,6 +37,11 @@ url = "2.5.8"
 [dev-dependencies]
 assert_cmd = "2.2.2"
 pretty_assertions = "1.4.1"
+
+[features]
+# MCP 服务器（stdio）支持：`search mcp` 子命令，可选依赖，默认不启用
+default = []
+mcp = ["dep:rmcp"]
 
 # 安全基线：依赖树许可与漏洞检查（cargo-deny）
 [package.metadata.deny]
