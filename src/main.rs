@@ -35,10 +35,15 @@ fn run_cli() -> ExitCode {
         };
     }
 
+    let json = cli.json;
+
     let Some(query) = cli.query else {
-        return finish(&Err(Error::Cli(
-            "缺少搜索词（用法: search \"<query>\" 或 search doctor）".into(),
-        )));
+        return finish(
+            &Err(Error::Cli(
+                "缺少搜索词（用法: search \"<query>\" 或 search doctor）".into(),
+            )),
+            json,
+        );
     };
 
     let config = Config {
@@ -58,26 +63,34 @@ fn run_cli() -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            return finish(&Err(Error::Internal(format!(
-                "tokio runtime 初始化失败: {e}"
-            ))));
+            return finish(
+                &Err(Error::Internal(format!("tokio runtime 初始化失败: {e}"))),
+                json,
+            );
         }
     };
-    finish(&runtime.block_on(app::run(config)))
+    finish(&runtime.block_on(app::run(config)), json)
 }
 
-/// 输出契约收口：成功包/失败包 → stdout，退出码按 §7.2 映射。
-fn finish(result: &Result<app::Outcome, Error>) -> ExitCode {
+/// 输出收口：`--json` → 契约包；否则人读文本。退出码按 §7.2 映射。
+fn finish(result: &Result<app::Outcome, Error>, json: bool) -> ExitCode {
     match result {
         Ok(outcome) => {
-            println!(
-                "{}",
+            let body = if json {
                 output::success(&outcome.query, &outcome.results, &outcome.meta)
-            );
+            } else {
+                output::success_text(&outcome.query, &outcome.results, &outcome.meta)
+            };
+            println!("{body}");
             ExitCode::SUCCESS
         }
         Err(err) => {
-            println!("{}", output::failure(err));
+            let body = if json {
+                output::failure(err)
+            } else {
+                output::failure_text(err)
+            };
+            println!("{body}");
             ExitCode::from(err.exit_code() as u8)
         }
     }

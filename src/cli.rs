@@ -24,7 +24,7 @@ pub struct Cli {
     pub engine: EngineArg,
 
     /// 浏览器后端
-    #[arg(long, value_enum, default_value_t = BrowserArg::Chrome)]
+    #[arg(long, value_enum, default_value_t = BrowserArg::Firefox)]
     pub browser: BrowserArg,
 
     /// 返回条数上限

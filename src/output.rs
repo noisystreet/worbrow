@@ -1,4 +1,6 @@
-//! 输出序列化：成功/失败 JSON 包（design.md §7.1）。
+//! 输出序列化：成功/失败 JSON 包（design.md §7.1）；无 `--json` 时为人读文本。
+
+use std::fmt::Write as _;
 
 use serde::Serialize;
 
@@ -29,7 +31,7 @@ pub struct ErrorBody<'a> {
     pub detail: Option<String>,
 }
 
-/// 成功包（stdout 唯一 JSON 输出）。
+/// 成功包（`--json` 时 stdout）。
 pub fn success(query: &str, results: &[SearchResult], meta: &SearchMeta) -> String {
     serde_json::to_string_pretty(&SuccessPayload {
         schema_version: SCHEMA_VERSION,
@@ -40,7 +42,7 @@ pub fn success(query: &str, results: &[SearchResult], meta: &SearchMeta) -> Stri
     .expect("序列化成功包不应失败")
 }
 
-/// 失败包：非 0 退出码时同样输出到 stdout，供 agent 结构化处理。
+/// 失败包：`--json` 且非 0 退出码时输出到 stdout，供 agent 结构化处理。
 pub fn failure(err: &Error) -> String {
     serde_json::to_string_pretty(&ErrorPayload {
         schema_version: SCHEMA_VERSION,
@@ -51,6 +53,35 @@ pub fn failure(err: &Error) -> String {
         },
     })
     .expect("序列化错误包不应失败")
+}
+
+/// 人读成功文本（无 `--json`）。
+pub fn success_text(query: &str, results: &[SearchResult], meta: &SearchMeta) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "query: {query}\nengine: {}  results: {}  elapsed: {}ms",
+        meta.engine, meta.result_count, meta.elapsed_ms
+    );
+    if meta.captcha {
+        let _ = writeln!(out, "warning: captcha detected");
+    }
+    if meta.low_yield {
+        let _ = writeln!(out, "warning: low yield (<3 results)");
+    }
+    for r in results {
+        let _ = writeln!(
+            out,
+            "\n{}. {}\n   {}\n   {}",
+            r.rank, r.title, r.url, r.snippet
+        );
+    }
+    out
+}
+
+/// 人读失败文本（无 `--json`）。
+pub fn failure_text(err: &Error) -> String {
+    format!("错误 [{}]: {err}\n", err.code_str())
 }
 
 #[cfg(test)]
@@ -81,5 +112,39 @@ mod tests {
         let err = Error::Timeout("x".into());
         let parsed: serde_json::Value = serde_json::from_str(&failure(&err)).unwrap();
         assert_eq!(parsed["error"]["code"], "timeout");
+    }
+
+    #[test]
+    fn success_text_lists_results() {
+        let meta = SearchMeta {
+            engine: "duckduckgo",
+            started_at: Utc::now(),
+            elapsed_ms: 42,
+            result_count: 1,
+            low_yield: true,
+            captcha: false,
+            engine_error: None,
+        };
+        let results = [SearchResult {
+            rank: 1,
+            title: "T".into(),
+            url: "https://example.com".into(),
+            snippet: "S".into(),
+        }];
+        let text = success_text("q", &results, &meta);
+        assert!(text.contains("query: q"));
+        assert!(text.contains("engine: duckduckgo"));
+        assert!(text.contains("1. T"));
+        assert!(text.contains("https://example.com"));
+        assert!(text.contains("warning: low yield"));
+        assert!(!text.contains("schema_version"));
+    }
+
+    #[test]
+    fn failure_text_includes_code() {
+        let text = failure_text(&Error::Cli("缺参".into()));
+        assert!(text.contains("[cli]"));
+        assert!(text.contains("缺参"));
+        assert!(!text.contains("schema_version"));
     }
 }

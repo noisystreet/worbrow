@@ -1,7 +1,10 @@
-# pre-commit 配置（与 CI 同一套检查入口）
-# 安装：pre-commit install；手动运行：pre-commit run --all-files
-# 注意：rustfmt/clippy 等 Rust 检查由 Makefile 与 CI 承担（见 .github/workflows/ci.yml），
-# pre-commit 只负责通用文件级钩子，避免镜像仓库网络依赖。
+# pre-commit：本地快速门禁（CI 子集中的文件级/密钥/提交信息检查）
+# 安装：
+#   pre-commit install
+#   pre-commit install --hook-type commit-msg
+# 手动：pre-commit run --all-files
+# rustfmt/clippy/test/deny/machete 由 Makefile 与 CI 承担（见 .github/workflows/ci.yml），
+# 避免把慢检查与镜像网络依赖塞进每次提交钩子。
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v5.0.0
@@ -9,4 +12,15 @@ repos:
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
       - id: check-added-large-files
+      - id: detect-private-key
+      - id: detect-aws-credentials
+        args: [--allow-missing-credentials]
+
+  - repo: https://github.com/compilerla/conventional-pre-commit
+    rev: v3.6.0
+    hooks:
+      - id: conventional-pre-commit
+        stages: [commit-msg]

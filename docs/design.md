@@ -73,11 +73,11 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 
 | ADR | 标题 | 状态 |
 |---|---|---|
-| [ADR-001](docs/adr/0001-program-shape.md) | 程序形态 = 单任务 CLI | 已接受 |
-| [ADR-002](docs/adr/0002-browser-driver-protocols.md) | 浏览器驱动 = 自研双协议后端（CDP + Marionette） | 已接受 |
-| [ADR-003](docs/adr/0003-search-url-direct.md) | 搜索方式 = URL 直访优先，交互原语备用 | 已接受 |
-| [ADR-004](docs/adr/0004-output-contract-json.md) | 输出契约 = JSON schema v1 + 语义化退出码 | 已接受 |
-| [ADR-005](docs/adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`search mcp`，rmcp 2.2） | 已接受 |
+| [ADR-001](adr/0001-program-shape.md) | 程序形态 = 单任务 CLI | 已接受 |
+| [ADR-002](adr/0002-browser-driver-protocols.md) | 浏览器驱动 = 自研双协议后端（CDP + Marionette） | 已接受 |
+| [ADR-003](adr/0003-search-url-direct.md) | 搜索方式 = URL 直访优先，交互原语备用 | 已接受 |
+| [ADR-004](adr/0004-output-contract-json.md) | 输出契约 = JSON schema v1 + 语义化退出码 | 已接受 |
+| [ADR-005](adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`search mcp`，rmcp 2.2） | 已接受 |
 
 ---
 
@@ -167,7 +167,7 @@ clap derive 定义参数（示意）：
 |---|---|---|---|
 | `<query>` | string | 有子命令时省略 | 搜索词 |
 | `--engine` | enum | `duckduckgo` | 引擎名（可用：`search list` 查看） |
-| `--browser` | enum | `chrome` | 浏览器后端：`chrome`（CDP）或 `firefox`（Marionette） |
+| `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，待实现） |
 | `--max-results` | usize | 10 | 返回条数上限 |
 | `--timeout` | secs | 20 | 全流程硬超时 |
 | `--json` | flag | 否 | JSON 输出（agent 调用必带） |

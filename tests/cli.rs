@@ -38,8 +38,16 @@ fn doctor_subcommand_exits_zero() {
 }
 
 #[test]
-fn missing_query_is_cli_error_json() {
+fn missing_query_without_json_is_human_error() {
     let (code, out) = run(&[]);
+    assert_eq!(code, 2);
+    assert!(out.contains("[cli]"));
+    assert!(!out.trim_start().starts_with('{'));
+}
+
+#[test]
+fn missing_query_with_json_is_error_payload() {
+    let (code, out) = run(&["--json"]);
     assert_eq!(code, 2);
     let json = parse_json(&out);
     assert_eq!(json["schema_version"], 1);
@@ -54,9 +62,9 @@ fn unknown_engine_is_cli_error() {
 }
 
 #[test]
-fn default_chrome_backend_reports_not_implemented() {
-    // 骨架阶段：真实 CDP 后端未实现 → 错误 JSON 包 + exit 1
-    let (code, out) = run(&["--json", "rust"]);
+fn chrome_backend_reports_not_implemented() {
+    // CDP 后端未实现 → 显式 --browser chrome 时错误 JSON 包 + exit 1
+    let (code, out) = run(&["--browser", "chrome", "--json", "rust"]);
     assert_eq!(code, 1);
     let json = parse_json(&out);
     assert_eq!(json["schema_version"], 1);
