@@ -6,6 +6,8 @@
 
 ### Changed
 
+- **默认启用 `mcp` feature**：普通 `cargo build` / `make build` 即含 `worbrow mcp`；
+  可用 `--no-default-features` 精简构建
 - **项目更名为 `worbrow`**：Cargo 包/库/二进制统一为 `worbrow`（原 `rplay-search` / `search`）；
   MCP 工具名为 `web_search`
 - **MCP 工具更名为 `web_search`**（原 `search`）
@@ -15,7 +17,7 @@
 - **Debian 打包（cargo-deb）**：`make deb` 生成 `target/debian/worbrow_*.deb`
   （发布形态启用 mcp feature）；`Recommends: firefox | firefox-esr` 运行时弱依赖；
   CI 新增 deb 构建与内容校验 job
-- **MCP stdio server（`worbrow mcp`，需 `--features mcp` 编译）**：rmcp 2.2 官方
+- **MCP stdio server（`worbrow mcp`）**：rmcp 2.2 官方
   SDK，stdio 传输；`web_search` 工具（query/engine/browser/max_results/timeout）复用
   `app::run`，成功/失败包 JSON 经 `tools/call` 返回；`browser=fake` 冒烟免浏览器；
   集成测试覆盖握手/tools/list/tools/call（见 docs/adr/0005-mcp-stdio-server.md）

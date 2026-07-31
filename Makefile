@@ -26,6 +26,7 @@ doctor:
 build:
 	cargo build --release
 
-# Debian 包（cargo-deb）：发布形态启用 mcp feature，产物 target/debian/*.deb
+# MCP 服务器（stdio）支持：`worbrow mcp` 子命令；默认启用（见 Cargo.toml default）
+# Debian 打包（`make deb` / CI，cargo-deb 3.x）
 deb:
-	cargo deb --features mcp
+	cargo deb

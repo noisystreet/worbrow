@@ -31,12 +31,13 @@ sudo apt install ./target/debian/worbrow_*.deb
 ### MCP（Model Context Protocol）
 
 ```bash
-cargo build --features mcp
+cargo build --release
 ```
 
 以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露 `web_search` 工具
 （query/engine/browser/max_results/timeout），工具结果复用输出契约（schema v1）。
 设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
+（若不需要 MCP：`cargo build --no-default-features`）
 
 ## 调用契约（agent 侧）
 
@@ -63,7 +64,7 @@ cargo build --features mcp
 
 ```bash
 make check      # fmt + clippy(-D warnings) + test
-make test       # cargo test（`cargo test --features mcp` 全量 38 个，CI 无需浏览器）
+make test       # cargo test（默认含 mcp，CI 无需浏览器）
 make deny       # cargo-deny 许可/漏洞检查
 make machete    # 未使用依赖检查
 make doctor     # 运行 worbrow doctor

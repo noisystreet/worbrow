@@ -1,10 +1,10 @@
-//! MCP stdio server 集成测试（需要 `--features mcp` 编译运行）。
+//! MCP stdio server 集成测试（默认 feature 含 mcp）。
 //!
 //! 真实子进程 + 真实 stdio 管道：验证协议握手（initialize）、tools/list、
 //! tools/call（browser=fake 路径，无外网/无浏览器依赖）。
 //!
 //! ```bash
-//! cargo test --features mcp --test mcp
+//! cargo test --test mcp
 //! ```
 
 #![cfg(feature = "mcp")]

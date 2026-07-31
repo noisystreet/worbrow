@@ -49,7 +49,7 @@ jobs:
       - uses: taiki-e/install-action@cargo-deb
 
       - name: build deb
-        run: cargo deb --features mcp
+        run: cargo deb
 
       - name: verify deb
         run: |
