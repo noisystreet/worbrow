@@ -3,12 +3,12 @@
 use std::process::ExitCode;
 
 use clap::Parser;
-use rplay_search::app::{self, Config};
-use rplay_search::cli::{BrowserArg, Cli, Command, LogLevelArg};
-use rplay_search::drivers::{self, BrowserKind};
-use rplay_search::engines;
-use rplay_search::error::Error;
-use rplay_search::output;
+use worbrow::app::{self, Config};
+use worbrow::cli::{BrowserArg, Cli, Command, LogLevelArg};
+use worbrow::drivers::{self, BrowserKind};
+use worbrow::engines;
+use worbrow::error::Error;
+use worbrow::output;
 
 fn main() -> ExitCode {
     // panic 兜底：任何 panic 转 exit 1（design.md §6.1）
@@ -40,7 +40,7 @@ fn run_cli() -> ExitCode {
     let Some(query) = cli.query else {
         return finish(
             &Err(Error::Cli(
-                "缺少搜索词（用法: search \"<query>\" 或 search doctor）".into(),
+                "缺少搜索词（用法: worbrow \"<query>\" 或 worbrow doctor）".into(),
             )),
             json,
         );
@@ -96,9 +96,9 @@ fn finish(result: &Result<app::Outcome, Error>, json: bool) -> ExitCode {
     }
 }
 
-/// `search doctor`：环境自检（design.md §10）。
+/// `worbrow doctor`：环境自检（design.md §10）。
 fn doctor() -> ExitCode {
-    println!("=== search doctor ===");
+    println!("=== worbrow doctor ===");
     println!("引擎注册表:");
     for name in engines::AVAILABLE {
         println!("  - {name}");
@@ -122,7 +122,7 @@ fn doctor() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `search list`：列出可用引擎。
+/// `worbrow list`：列出可用引擎。
 fn list_engines() -> ExitCode {
     for name in engines::AVAILABLE {
         println!("{name}");
@@ -130,7 +130,7 @@ fn list_engines() -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// `search mcp`：以 MCP stdio server 形态运行（docs/adr/0005-mcp-stdio-server.md）。
+/// `worbrow mcp`：以 MCP stdio server 形态运行（docs/adr/0005-mcp-stdio-server.md）。
 ///
 /// 与普通搜索不同：stdout 是 MCP JSON-RPC 通道，**不**走 `finish()` 输出契约包；
 /// 工具结果经 MCP `tools/call` 响应返回。错误仅写 stderr + exit 1。
@@ -143,7 +143,7 @@ fn mcp_main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match runtime.block_on(rplay_search::mcp::serve_stdio()) {
+    match runtime.block_on(worbrow::mcp::serve_stdio()) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("MCP server 退出: {e}");

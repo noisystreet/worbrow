@@ -55,5 +55,5 @@ jobs:
         run: |
           DEB=$(ls target/debian/*.deb | head -n1)
           dpkg-deb --info "$DEB" | sed -n '1,20p'
-          dpkg-deb --contents "$DEB" | grep -q '/usr/bin/search'
+          dpkg-deb --contents "$DEB" | grep -q '/usr/bin/worbrow'
           echo "deb OK: $DEB"

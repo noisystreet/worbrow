@@ -10,7 +10,7 @@ use crate::error::Error;
 use crate::ports::SearchProvider;
 use duckduckgo::DuckDuckGo;
 
-/// 可用引擎列表（`search list` 输出）。
+/// 可用引擎列表（`worbrow list` 输出）。
 pub const AVAILABLE: &[&str] = &["duckduckgo"];
 
 /// 引擎注册表：名称 → `Box<dyn SearchProvider>`。

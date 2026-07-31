@@ -5,11 +5,11 @@ use std::path::Path;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use rplay_search::app::{self, Config};
-use rplay_search::drivers::{BrowserKind, fake::FakeDriver};
-use rplay_search::error::Error;
-use rplay_search::ports::BrowserDriver;
 use url::Url;
+use worbrow::app::{self, Config};
+use worbrow::drivers::{BrowserKind, fake::FakeDriver};
+use worbrow::error::Error;
+use worbrow::ports::BrowserDriver;
 
 const FIXTURE: &str = include_str!("fixtures/duckduckgo.html");
 

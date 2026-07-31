@@ -28,14 +28,14 @@ struct McpClient {
 
 impl McpClient {
     async fn spawn() -> McpClient {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_search"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_worbrow"))
             .arg("mcp")
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .expect("spawn search mcp");
+            .expect("spawn worbrow mcp");
         let writer = child.stdin.take().expect("server stdin");
         let stdout = child.stdout.take().expect("server stdout");
         McpClient {
@@ -128,7 +128,7 @@ impl McpClient {
 }
 
 #[tokio::test]
-async fn tools_list_exposes_search_tool() {
+async fn tools_list_exposes_web_search_tool() {
     let mut client = McpClient::spawn().await;
     client.initialize().await;
 
@@ -137,15 +137,15 @@ async fn tools_list_exposes_search_tool() {
         .as_array()
         .unwrap_or_else(|| panic!("tools/list 应返回 tools 数组（实际: {resp}）"));
     assert!(
-        tools.iter().any(|t| t["name"] == "search"),
-        "tools 应包含 search 工具（实际: {tools:?}）"
+        tools.iter().any(|t| t["name"] == "web_search"),
+        "tools 应包含 web_search 工具（实际: {tools:?}）"
     );
     // 输入 schema 应带 query 必填字段
-    let search = tools
+    let web_search = tools
         .iter()
-        .find(|t| t["name"] == "search")
-        .expect("search 工具存在");
-    let required = search["inputSchema"]["required"]
+        .find(|t| t["name"] == "web_search")
+        .expect("web_search 工具存在");
+    let required = web_search["inputSchema"]["required"]
         .as_array()
         .cloned()
         .unwrap_or_default();
@@ -154,7 +154,7 @@ async fn tools_list_exposes_search_tool() {
 }
 
 #[tokio::test]
-async fn tools_call_runs_search_via_fake_driver() {
+async fn tools_call_runs_web_search_via_fake_driver() {
     let mut client = McpClient::spawn().await;
     client.initialize().await;
 
@@ -162,7 +162,7 @@ async fn tools_call_runs_search_via_fake_driver() {
         .call(
             "tools/call",
             json!({
-                "name": "search",
+                "name": "web_search",
                 "arguments": {
                     "query": "rust async",
                     "browser": "fake",
@@ -207,7 +207,7 @@ async fn tools_call_rejects_unknown_browser() {
         .call(
             "tools/call",
             json!({
-                "name": "search",
+                "name": "web_search",
                 "arguments": { "query": "x", "browser": "lynx" }
             }),
         )

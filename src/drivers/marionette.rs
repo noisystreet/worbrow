@@ -368,7 +368,7 @@ fn pick_free_port() -> Result<u16, Error> {
 /// 创建独立临时 profile，写入随机 `marionette.port`（design.md §10.1）。
 fn create_profile(port: u16) -> Result<TempDir, Error> {
     let dir = tempfile::Builder::new()
-        .prefix("search-firefox-profile-")
+        .prefix("worbrow-firefox-profile-")
         .tempdir()
         .map_err(|e| Error::Env(format!("创建 Firefox profile 失败: {e}")))?;
     std::fs::write(

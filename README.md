@@ -1,4 +1,4 @@
-# rplay-search
+# worbrow
 
 Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，Firefox 走 Marionette，协议层自研）在通用搜索引擎上执行搜索，输出稳定 JSON 契约供 AI agent 以子进程方式调用。
 
@@ -19,11 +19,11 @@ cargo run -- "rust 异步运行时" --json --engine duckduckgo
 
 ### 安装（Debian/Ubuntu）
 
-发布形态的 `.deb` 含 MCP 支持（`search mcp`）：
+发布形态的 `.deb` 含 MCP 支持（`worbrow mcp`）：
 
 ```bash
-make deb                       # 生成 target/debian/rplay-search_*.deb
-sudo apt install ./target/debian/rplay-search_*.deb
+make deb                       # 生成 target/debian/worbrow_*.deb
+sudo apt install ./target/debian/worbrow_*.deb
 ```
 
 或直接在 CI 产物/发布页安装；运行时弱依赖 Firefox（Recommends: firefox | firefox-esr）。
@@ -34,7 +34,7 @@ sudo apt install ./target/debian/rplay-search_*.deb
 cargo build --features mcp
 ```
 
-以 MCP stdio server 运行 `search mcp`，向 MCP 客户端暴露 `search` 工具
+以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露 `web_search` 工具
 （query/engine/browser/max_results/timeout），工具结果复用输出契约（schema v1）。
 设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
 
@@ -66,7 +66,7 @@ make check      # fmt + clippy(-D warnings) + test
 make test       # cargo test（`cargo test --features mcp` 全量 38 个，CI 无需浏览器）
 make deny       # cargo-deny 许可/漏洞检查
 make machete    # 未使用依赖检查
-make doctor     # 运行 search doctor
+make doctor     # 运行 worbrow doctor
 ```
 
 ## 目录

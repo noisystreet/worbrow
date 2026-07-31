@@ -10,7 +10,7 @@
 
 ### 1.1 目标
 
-- 提供一个 **CLI 工具**：`search "rust async runtime" --engine bing --json`
+- 提供一个 **CLI 工具**：`worbrow "rust async runtime" --engine bing --json`
 - 驱动 **本机 headless 浏览器**（Chrome/Edge/Firefox，协议层自研）完成真实搜索，突破纯 HTTP 抓取被反爬拦截的局限
 - 输出 **结构化的搜索结果**（标题 / URL / 摘要 / 排名），schema 版本化、跨版本稳定
 - 输出契约面向 **agent 程序**：默认 `--json` 全量输出，日志绝不混入 stdout
@@ -30,7 +30,7 @@
 ## 2. 使用场景：agent 如何调用
 
 ```
-$ search "rust 异步运行时 对比" --engine duckduckgo --max-results 8 --timeout 20 --json
+$ worbrow "rust 异步运行时 对比" --engine duckduckgo --max-results 8 --timeout 20 --json
 ```
 
 调用约定（对调用方是**硬契约**）：
@@ -77,7 +77,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-002](adr/0002-browser-driver-protocols.md) | 浏览器驱动 = 自研双协议后端（CDP + Marionette） | 已接受 |
 | [ADR-003](adr/0003-search-url-direct.md) | 搜索方式 = URL 直访优先，交互原语备用 | 已接受 |
 | [ADR-004](adr/0004-output-contract-json.md) | 输出契约 = JSON schema v1 + 语义化退出码 | 已接受 |
-| [ADR-005](adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`search mcp`，rmcp 2.2） | 已接受 |
+| [ADR-005](adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`worbrow mcp`，rmcp 2.2） | 已接受 |
 
 ---
 
@@ -166,7 +166,7 @@ clap derive 定义参数（示意）：
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<query>` | string | 有子命令时省略 | 搜索词 |
-| `--engine` | enum | `duckduckgo` | 引擎名（可用：`search list` 查看） |
+| `--engine` | enum | `duckduckgo` | 引擎名（可用：`worbrow list` 查看） |
 | `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，待实现） |
 | `--max-results` | usize | 10 | 返回条数上限 |
 | `--timeout` | secs | 20 | 全流程硬超时 |
@@ -176,7 +176,7 @@ clap derive 定义参数（示意）：
 | `--dump-html <path>` | path | 无 | 失败或 low_yield 时保存原始 HTML（调试） |
 | `--connect <cdp-url>` | url | 无 | 连接已运行浏览器（V2 性能演进） |
 
-子命令：`search doctor`（环境自检，§10）、`search list`（列出引擎）。
+子命令：`worbrow doctor`（环境自检，§10）、`worbrow list`（列出引擎）。
 
 `main.rs` 职责：初始化 tracing（仅 stderr）→ 子命令分发 → `app::run` →
 输出 JSON 包并映射退出码。任何 panic 由顶层 `catch_unwind` 兜底转成 `exit(1)` 并输出错误 JSON。
@@ -257,7 +257,7 @@ pub trait SearchProvider: Send + Sync {
 - 消息框架：tokio-tungstenite + JSON-RPC（`{id,method,params}` / 事件通道），tokio 超时轮询
 - 命令子集：`Target.attachToTarget` / `Page.navigate` / `Runtime.evaluate`（取 HTML、轮询
   `document.readyState`、验证码判定）/ `Page.captureScreenshot`
-- 协议命令与版本在模块内集中登记，`search doctor` 做连通性验证
+- 协议命令与版本在模块内集中登记，`worbrow doctor` 做连通性验证
 
 **drivers/marionette.rs**（Firefox）：
 - 启动：`firefox -marionette -headless`（监听 127.0.0.1:2828）
@@ -321,7 +321,7 @@ pub trait SearchProvider: Send + Sync {
 |---|---|---|
 | 0 | 成功（含 captcha=true 但出了部分结果） | 正常解析 |
 | 2 | 参数错误（未知引擎 / query 为空等） | 修正调用，不重试 |
-| 3 | 环境错误（浏览器未安装 / CDP 启动失败） | 检查环境，`search doctor` 自检 |
+| 3 | 环境错误（浏览器未安装 / CDP 启动失败） | 检查环境，`worbrow doctor` 自检 |
 | 4 | 搜索失败（网络 / 解析 / 验证码阻止） | 可换引擎重试（读 `error.detail`） |
 | 124 | 超时（对齐 GNU timeout 语义） | 可选重试 |
 | 1 | 未知内部错误 / panic | 上报，不重试 |
@@ -366,22 +366,22 @@ pub trait SearchProvider: Send + Sync {
   规避并发实例端口冲突
 - **Marionette 端口**：默认固定 2828，多实例会冲突 → 每实例使用独立临时 profile
   （`-profile <temp>` + `user.js` 写入随机 `marionette.port`）；若实现受阻则退化为调用方串行化
-- 进程回收：Drop + 进程退出即回收（见 §8）；并发下由 `search doctor` 检查无残留进程
+- 进程回收：Drop + 进程退出即回收（见 §8）；并发下由 `worbrow doctor` 检查无残留进程
 
 ### 10.2 浏览器版本矩阵与发现
 
-- **兼容矩阵**（登记在 `drivers/` 内，`search doctor` 对照检查）：
+- **兼容矩阵**（登记在 `drivers/` 内，`worbrow doctor` 对照检查）：
   Chrome/Edge ≥ 109（`--headless=new`）；Firefox ≥ 55（`-marionette`）
 - **发现顺序**：`CHROME_PATH` / `FIREFOX_PATH` 环境变量 → PATH 搜索（`google-chrome` /
   `chromium` / `firefox` 等）→ 平台默认位置（Windows 注册表 / macOS `/Applications` / Linux 常见路径）
-- 版本不符时：`search doctor` 给出明确安装指引；运行时报 `error.code="env"`（exit 3）
+- 版本不符时：`worbrow doctor` 给出明确安装指引；运行时报 `error.code="env"`（exit 3）
 
 ### 10.3 安全细节
 
 - 搜索结果 URL 来自第三方，工具**只输出不访问**；README 提醒 agent 侧勿自动 follow 结果链接
   （防钓鱼/恶意跳转）
 - 标题/摘要清洗：HTML 实体反转义 + 剥离控制字符，防注入与乱码（收敛在 `extract.rs`）
-- 临时目录：profile 与截图写入 `temp_dir()/search-<pid>/`，退出清理（见 §8）
+- 临时目录：profile 与截图写入 `temp_dir()/worbrow-<pid>/`，退出清理（见 §8）
 - 目标域白名单与合规边界见 §9
 
 ### 10.4 输出信号增强
@@ -397,7 +397,7 @@ pub trait SearchProvider: Send + Sync {
 
 - tracing 输出到 **stderr**：`--log-level` 时打印 `navigate → wait_for → parse` 各步骤耗时；
 - 失败现场：`--screenshot <path>` 保存捕获时的页面截图（验证码、空白结果页均有用）；
-- `search doctor` 子命令：检查浏览器二进制、CDP 连通性、引擎注册表健康（各引擎跑一次
+- `worbrow doctor` 子命令：检查浏览器二进制、CDP 连通性、引擎注册表健康（各引擎跑一次
   离线 fixture 解析），环境类问题定位从"试一次"变成"查一次"。
 
 ---
@@ -419,8 +419,8 @@ CI 不依赖真实浏览器，保证可复现。
 ## 13. 演进路线
 
 - **V1（MVP，进行中）**：DuckDuckGo 引擎 + Marionette 后端（Firefox）已完成；
-  `--json`/超时/验证码检测/截图/`search doctor` 已就绪；MCP stdio server
-  （`search mcp`，rmcp 2.2，见 ADR-005）已完成。
+  `--json`/超时/验证码检测/截图/`worbrow doctor` 已就绪；MCP stdio server
+  （`worbrow mcp`，rmcp 2.2，见 ADR-005）已完成。
   待办：CDP 后端（Chrome/Edge）、Bing 引擎
 - **V2**：百度、Google（预期高拦截，降级为"尽力"）；`--connect` 连接常驻浏览器复用会话；
   结果去重归一化加强；新增 `--retry`（瞬时网络错误重试）；若需网络拦截等深度控制，
@@ -437,13 +437,13 @@ CI 不依赖真实浏览器，保证可复现。
 |---|---|---|
 | 搜索引擎 HTML 频繁改版 | 解析失败、结果空洞 | 适配器集中 + golden 测试 + `engine_error` 上报不破坏契约 |
 | 风控升级（验证码/封禁 IP） | 搜索不可用 | 多引擎冗余、频率纪律、诚实上报 captcha |
-| 浏览器协议演进（CDP/Marionette 改版） | 驱动失效 | 命令子集集中登记 + `search doctor` 连通性自检 + fixture 冒烟 |
+| 浏览器协议演进（CDP/Marionette 改版） | 驱动失效 | 命令子集集中登记 + `worbrow doctor` 连通性自检 + fixture 冒烟 |
 | 自研维护成本 | 开发/排障时间上升 | 功能面窄（仅搜索），协议命令少；两个后端共用 JSON-RPC 框架 |
 | 头less 指纹被识别 | 引擎返回异常结果 | 真实 UA、文档化限制、保留 headful 调试模式 |
 | 合规争议 | 目标站 ToS 纠纷 | 只取摘要、限目标域、README 明示边界 |
 
 开放问题（实现前确认）：
-1. 二进制命名（本设计暂用 `search`，可改名如 `rplay-search`）；
+1. 二进制命名（已定为 `worbrow`）；
 2. 是否需要在 V1 就提供 `--proxy` 支持（影响 ADR-002 两个后端的启动参数面，成本低，倾向纳入）；
 3. DuckDuckGo 的 lite/html 版（HTML-only 端点，解析更稳定）是否作为默认端点。
 

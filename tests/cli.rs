@@ -4,9 +4,9 @@
 use assert_cmd::Command;
 use serde_json::Value;
 
-/// 运行 `search` 并返回 (exit_code, stdout_str)。
+/// 运行 `worbrow` 并返回 (exit_code, stdout_str)。
 fn run(args: &[&str]) -> (i32, String) {
-    let output = Command::cargo_bin("search")
+    let output = Command::cargo_bin("worbrow")
         .expect("binary 应存在")
         .args(args)
         .output()

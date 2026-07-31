@@ -1,7 +1,7 @@
 //! 测试用浏览器后端：返回预设 HTML，CI 无需真实浏览器（design.md §6.5 / §11）。
 //!
 //! `drivers::resolve(BrowserKind::Fake)` 返回带 [`SMOKE_HTML`] 的实例，使
-//! `browser=fake`（CLI 不暴露，MCP `search` 工具可用）无需真实浏览器即可产出
+//! `browser=fake`（CLI 不暴露，MCP `web_search` 工具可用）无需真实浏览器即可产出
 //! 可解析的模拟结果；测试需要定制页面时用 [`FakeDriver::with_html`] 显式注入。
 
 use std::path::Path;

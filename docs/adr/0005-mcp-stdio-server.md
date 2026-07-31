@@ -1,4 +1,4 @@
-# ADR-005：MCP stdio server 支持（`search mcp`）
+# ADR-005：MCP stdio server 支持（`worbrow mcp`）
 
 - 状态：已接受
 - 日期：2026-07-31
@@ -8,12 +8,12 @@
 主流 AI agent 运行时（Claude Code、Cursor、通用 MCP 客户端等）通过 **MCP
 （Model Context Protocol）** 接入外部工具。stdio 传输是 MCP 客户端默认且覆盖面最广
 的接入方式（免端口、免认证、进程生命周期由客户端管理）。此前本项目只有单任务 CLI，
-agent 只能以子进程方式调用；接入 MCP 可将 `search` 作为一等工具暴露，复用同一内核。
+agent 只能以子进程方式调用；接入 MCP 可将 `web_search` 作为一等工具暴露，复用同一内核。
 
 ## 决策
 
-- 新增 `search mcp` 子命令：以 **MCP stdio server** 形态运行，通过 stdio 暴露
-  `search` 工具（参数：`query`/`engine`/`browser`/`max_results`/`timeout`）
+- 新增 `worbrow mcp` 子命令：以 **MCP stdio server** 形态运行，通过 stdio 暴露
+  `web_search` 工具（参数：`query`/`engine`/`browser`/`max_results`/`timeout`）
 - SDK 采用 **rmcp 2.2.0**（官方 Rust SDK）。钉 2.x：v3 需要 rustc 1.88，超过本项目
   MSRV 1.85；2.2 提供 `#[tool]`/`#[tool_router]` 宏、`ServerHandler` trait 与
   `ServiceExt::serve` + `transport::stdio`，满足全部需求
@@ -31,7 +31,7 @@ agent 只能以子进程方式调用；接入 MCP 可将 `search` 作为一等�
 
 - **得到**：MCP 客户端零配置接入；工具与 CLI 共享同一内核与输出契约（schema v1），
   行为一致；stdio 传输无端口/认证负担
-- **付出**：`search mcp` 需 `--features mcp` 编译（CI 与发布脚本同步）；rmcp
+- **付出**：`worbrow mcp` 需 `--features mcp` 编译（CI 与发布脚本同步）；rmcp
   依赖树仅在 mcp feature 下引入；MCP 模式的错误不再有退出码语义（由 MCP 客户端
   呈现 `isError`，契约 JSON 中的 `error.code` 仍可机器区分）
 - **拒绝**：无 SDK 手写 JSON-RPC（协议栈非核心价值，rmcp 为官方 SDK 且成熟）；

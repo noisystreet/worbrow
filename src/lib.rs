@@ -1,4 +1,4 @@
-//! # rplay-search
+//! # worbrow
 //!
 //! Agent 搜索 CLI 的库核心。驱动本机 headless 浏览器（Chrome/Edge/Firefox）在通用
 //! 搜索引擎上执行搜索，输出稳定的 JSON 契约。

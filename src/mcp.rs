@@ -1,6 +1,6 @@
 //! MCP（Model Context Protocol）stdio server（docs/adr/0005-mcp-stdio-server.md）。
 //!
-//! `search mcp` 子命令：以 MCP server 形态运行，通过 stdio 暴露 `search` 工具。
+//! `worbrow mcp` 子命令：以 MCP server 形态运行，通过 stdio 暴露 `web_search` 工具。
 //! 工具参数 → `app::run` → 成功/失败包 JSON 作为 text content 返回。
 //!
 //! 通道约定：stdout 是 MCP JSON-RPC 通道（禁止任何 println 污染），日志走 stderr。
@@ -18,11 +18,11 @@ use crate::app;
 use crate::drivers::BrowserKind;
 use crate::error::Error;
 
-/// MCP server：`search` 工具的唯一宿主。
+/// MCP server：`web_search` 工具的唯一宿主。
 #[derive(Debug, Clone, Default)]
 pub struct SearchServer;
 
-/// `search` 工具输入参数（schemars 自动生成 JSON Schema）。
+/// `web_search` 工具输入参数（schemars 自动生成 JSON Schema）。
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SearchParams {
     /// 搜索关键词（必填，1-512 字符）
@@ -92,9 +92,10 @@ impl SearchServer {
 impl SearchServer {
     /// 执行一次搜索引擎搜索（MCP 工具）。
     #[tool(
+        name = "web_search",
         description = "驱动本机 headless 浏览器执行搜索引擎搜索，返回稳定 JSON 契约（schema_version=1 的成功/失败包）"
     )]
-    async fn search(&self, Parameters(params): Parameters<SearchParams>) -> CallToolResult {
+    async fn web_search(&self, Parameters(params): Parameters<SearchParams>) -> CallToolResult {
         // 参数解析失败 → 用户可见的 error content（而非协议错误）
         let browser = match Self::parse_browser(&params.browser) {
             Ok(b) => b,

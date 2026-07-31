@@ -28,6 +28,6 @@
 - **放弃现成库的原因**：chromiumoxide 只支持 Chromium 系（Firefox 需另配
   fantoccini/WebDriver，引入 driver 进程），且大版本 API 变动频繁、依赖链约 30 个 crate；
   自研后两个浏览器协议统一收敛在一个 trait 后，行为一致
-- **风险与缓解**：协议命令表在 `drivers/` 内集中登记 + `search doctor` 验证连通性；
+- **风险与缓解**：协议命令表在 `drivers/` 内集中登记 + `worbrow doctor` 验证连通性；
   若后续需要网络拦截等深度控制，再回退引入 chromiumoxide 作为第二个 CDP 实现
   （trait 不变，可随时切换）

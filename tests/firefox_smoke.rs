@@ -5,16 +5,16 @@
 use std::process::Command;
 use std::time::Duration;
 
-use rplay_search::drivers::marionette::MarionetteDriver;
-use rplay_search::error::Error;
 use url::Url;
+use worbrow::drivers::marionette::MarionetteDriver;
+use worbrow::error::Error;
 
 /// 统计本工具启动的 Firefox（按临时 profile 路径特征隔离，避免与其他测试/系统进程互相干扰）。
 fn firefox_count() -> usize {
     let out = Command::new("pgrep")
         .arg("-c")
         .arg("-f")
-        .arg("search-firefox-profile")
+        .arg("worbrow-firefox-profile")
         .output()
         .expect("pgrep 应可执行");
     String::from_utf8_lossy(&out.stdout)
@@ -78,7 +78,7 @@ async fn end_to_end_on_data_url() {
     assert_eq!(title, "hello");
 
     // screenshot：写临时文件并校验 PNG 头
-    let shot_path = std::env::temp_dir().join("rplay-firefox-shot.png");
+    let shot_path = std::env::temp_dir().join("worbrow-firefox-shot.png");
     driver
         .screenshot(&shot_path)
         .await

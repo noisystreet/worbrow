@@ -4,13 +4,19 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **项目更名为 `worbrow`**：Cargo 包/库/二进制统一为 `worbrow`（原 `rplay-search` / `search`）；
+  MCP 工具名为 `web_search`
+- **MCP 工具更名为 `web_search`**（原 `search`）
+
 ### Added
 
-- **Debian 打包（cargo-deb）**：`make deb` 生成 `target/debian/rplay-search_*.deb`
+- **Debian 打包（cargo-deb）**：`make deb` 生成 `target/debian/worbrow_*.deb`
   （发布形态启用 mcp feature）；`Recommends: firefox | firefox-esr` 运行时弱依赖；
   CI 新增 deb 构建与内容校验 job
-- **MCP stdio server（`search mcp`，需 `--features mcp` 编译）**：rmcp 2.2 官方
-  SDK，stdio 传输；`search` 工具（query/engine/browser/max_results/timeout）复用
+- **MCP stdio server（`worbrow mcp`，需 `--features mcp` 编译）**：rmcp 2.2 官方
+  SDK，stdio 传输；`web_search` 工具（query/engine/browser/max_results/timeout）复用
   `app::run`，成功/失败包 JSON 经 `tools/call` 返回；`browser=fake` 冒烟免浏览器；
   集成测试覆盖握手/tools/list/tools/call（见 docs/adr/0005-mcp-stdio-server.md）
 - 项目骨架（design.md §5.2 目录结构）：domain/ports/app/cli/output 分层
@@ -27,7 +33,7 @@
 - 真机冒烟测试（`tests/firefox_smoke.rs`，`#[ignore]`，data: URL 全链路、并发端口隔离、
   无效 URL 导航不挂死，均无外网依赖）
 - app 层：wait_for 二级超时（≤10s 预算）+ navigate/wait_for/html 步骤耗时日志
-- CLI：`search "<query>"`（`--engine/--browser/--max-results/--timeout/--json/--log-level/--screenshot/--dump-html`）、
-  `search list`、`search doctor`（真实检测浏览器二进制）
+- CLI：`worbrow "<query>"`（`--engine/--browser/--max-results/--timeout/--json/--log-level/--screenshot/--dump-html`）、
+  `worbrow list`、`worbrow doctor`（真实检测浏览器二进制）
 - 输出契约 schema v1（成功包 + 错误包、语义化退出码）
 - 质量基线：cargo fmt/clippy(-D warnings)/test/deny/machete、CI workflow、pre-commit

@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand, ValueEnum};
 /// Agent 搜索 CLI：驱动本机 headless 浏览器执行搜索引擎搜索。
 #[derive(Debug, Parser)]
 #[command(
-    name = "search",
+    name = "worbrow",
     version,
     about = "驱动本机 headless 浏览器（Chrome/Edge/Firefox）执行搜索引擎搜索",
     long_about = None
