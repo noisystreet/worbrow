@@ -92,10 +92,15 @@ fn doctor() -> ExitCode {
     println!("  - fake: 可用（测试）");
     println!("  - chrome (CDP): 待实现（V1）");
     match drivers::discovery::find_browser(BrowserKind::Firefox) {
-        Ok(p) => println!(
-            "  - firefox (Marionette): 已实现（V1），二进制: {}",
-            p.display()
-        ),
+        Ok(p) => {
+            let version = drivers::discovery::browser_major_version(&p)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "未知".into());
+            println!(
+                "  - firefox (Marionette): 已实现（V1），二进制: {}（主版本 {version}）",
+                p.display()
+            );
+        }
         Err(e) => println!("  - firefox (Marionette): 不可用 - {e}"),
     }
     println!("=== done ===");

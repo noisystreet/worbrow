@@ -17,6 +17,9 @@ use crate::ports::BrowserDriver;
 
 /// 低结果阈值：结果数低于该值时 `meta.low_yield = true`（design.md §10.4）。
 pub const LOW_YIELD_THRESHOLD: usize = 3;
+/// 结果元素等待预算上限：页面加载已消耗大部分 timeout 时，剩余时间不足以等待选择器
+/// （design.md §6.2 二级超时）。
+pub const WAIT_BUDGET: Duration = Duration::from_secs(10);
 
 pub struct Config {
     pub query: String,
@@ -66,14 +69,27 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
 
     // 4-8. 包整体硬超时
     let (html, results, captcha) = timeout(config.timeout, async {
+        let step = Instant::now();
         driver.navigate(provider.result_url(&query)).await?;
+        tracing::info!(
+            elapsed_ms = step.elapsed().as_millis() as u64,
+            "navigate 完成"
+        );
 
-        // 6. 等待结果容器出现（骨架阶段由后端内聚等待语义）
+        // 6. 等待结果容器出现：二级超时（页面加载预算内截断，design.md §6.2）
+        let wait_budget = config.timeout.min(WAIT_BUDGET);
+        let step = Instant::now();
         driver
-            .wait_for(provider.result_selector(), config.timeout)
+            .wait_for(provider.result_selector(), wait_budget)
             .await?;
+        tracing::info!(
+            elapsed_ms = step.elapsed().as_millis() as u64,
+            "wait_for 完成"
+        );
 
+        let step = Instant::now();
         let html = driver.html().await?;
+        tracing::info!(elapsed_ms = step.elapsed().as_millis() as u64, "html 完成");
 
         // 7. 验证码启发式检测（不中止）
         let lower = html.to_lowercase();

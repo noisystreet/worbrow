@@ -107,3 +107,27 @@ async fn wait_for_missing_selector_times_out() {
         .expect_err("不存在的选择器应超时");
     assert!(matches!(err, Error::Timeout(_)));
 }
+
+/// 并发 spawn：两个实例随机端口不冲突（design.md §10.1）。
+#[tokio::test]
+#[ignore = "需要本机 Firefox"]
+async fn concurrent_spawns_use_distinct_ports() {
+    let (a, b) = tokio::join!(MarionetteDriver::spawn(), MarionetteDriver::spawn());
+    assert!(a.is_ok(), "实例 A 应成功（端口冲突或启动失败）");
+    assert!(b.is_ok(), "实例 B 应成功（端口冲突或启动失败）");
+}
+
+/// 无效 URL 导航：不挂死，40s 内必须返回（pageLoad 超时已收紧，design.md §8）。
+#[tokio::test]
+#[ignore = "需要本机 Firefox"]
+async fn navigate_invalid_url_errors_instead_of_hanging() {
+    let mut driver = MarionetteDriver::spawn()
+        .await
+        .expect("spawn 应成功（需要本机 Firefox）");
+    let result = tokio::time::timeout(
+        Duration::from_secs(40),
+        driver.navigate(Url::parse("http://127.0.0.1:1/").expect("URL 应合法")),
+    )
+    .await;
+    assert!(result.is_ok(), "navigate 不应挂死（40s 无响应即失败）");
+}

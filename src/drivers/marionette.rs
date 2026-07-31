@@ -36,6 +36,14 @@ use crate::ports::BrowserDriver;
 
 /// 等待 Firefox Marionette 端口就绪的超时（geckodriver 用 60s）。
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+/// 建会话（NewSession）超时：resolve 在 app timeout 之外，必须有自身兜底（design.md §8）。
+const SESSION_TIMEOUT: Duration = Duration::from_secs(30);
+/// 单条命令等待响应的超时（须大于页面加载超时，见 PAGE_LOAD_TIMEOUT）。
+const COMMAND_TIMEOUT: Duration = Duration::from_secs(60);
+/// 页面加载超时（Firefox 默认 300s，主动收紧让导航失败早暴露、错误明确）。
+const PAGE_LOAD_TIMEOUT_MS: u64 = 30_000;
+/// 脚本执行超时。
+const SCRIPT_TIMEOUT_MS: u64 = 10_000;
 /// 选择器轮询间隔。
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
 
@@ -62,9 +70,19 @@ impl Drop for Inner {
 }
 
 impl MarionetteDriver {
-    /// 启动 Firefox 并完成握手：find → spawn → connect → NewSession（design.md §6.2 步骤 3）。
+    /// 启动 Firefox 并完成握手：find → 校验版本 → spawn → connect → NewSession →
+    /// SetTimeouts（design.md §6.2 步骤 3）。
     pub async fn spawn() -> Result<Box<dyn BrowserDriver>, Error> {
         let binary = discovery::find_browser(BrowserKind::Firefox)?;
+        // 版本矩阵校验（design.md §10.2）：Firefox ≥ 55 才支持 -marionette
+        if let Some(version) = discovery::browser_major_version(&binary) {
+            if version < 55 {
+                return Err(Error::Env(format!(
+                    "Firefox 版本过低（{version} < 55），不支持 -marionette（二进制: {}）",
+                    binary.display()
+                )));
+            }
+        }
         let port = pick_free_port()?;
         let profile = create_profile(port)?;
 
@@ -75,6 +93,8 @@ impl MarionetteDriver {
             .arg("-foreground")
             .arg("-profile")
             .arg(profile.path());
+        // 注意：不传 --width/--height——实测在无 GPU 的软件渲染环境下，大画布
+        // （如 2560x1440）会使 Firefox 主线程卡住、Marionette 命令无响应
         // Firefox 自身的日志（Marionette/webrender 等）重定向丢弃：headless 下会走
         // stdout，污染输出契约管道（design.md §2）；诊断走截图/--dump-html 与 tracing
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
@@ -103,14 +123,30 @@ impl MarionetteDriver {
             child: Some(child),
             profile: Some(profile),
         };
-        // NewSession 失败时 inner 的 Drop 会 kill 子进程，无泄漏
-        inner
-            .transport
-            .send(
+        // 建会话限时：resolve 在 app timeout 之外，无自身超时会导致 agent 侧卡死
+        timeout(
+            SESSION_TIMEOUT,
+            inner.transport.send(
                 "WebDriver:NewSession",
                 json!({"capabilities": {"alwaysMatch": {}}}),
+            ),
+        )
+        .await??;
+        // 收紧页面加载/脚本超时（Firefox 默认 pageLoad 300s）；失败不致命，仅告警
+        if let Err(e) = inner
+            .transport
+            .send(
+                "WebDriver:SetTimeouts",
+                json!({
+                    "implicit": 0,
+                    "pageLoad": PAGE_LOAD_TIMEOUT_MS,
+                    "script": SCRIPT_TIMEOUT_MS,
+                }),
             )
-            .await?;
+            .await
+        {
+            tracing::warn!("SetTimeouts 失败（将使用 Firefox 默认值）: {e}");
+        }
 
         Ok(Box::new(MarionetteDriver {
             inner: Arc::new(Mutex::new(inner)),
@@ -218,14 +254,27 @@ impl MarionetteTransport {
         })
     }
 
-    /// 发送命令并等待 id 匹配的响应；hello/事件等无关帧跳过。
+    /// 发送命令并等待 id 匹配的响应（默认命令级超时）；hello/事件等无关帧跳过。
     async fn send(&mut self, command: &str, params: Value) -> Result<Value, Error> {
+        self.send_with_timeout(command, params, COMMAND_TIMEOUT)
+            .await
+    }
+
+    /// 带可配置超时的命令发送（测试注入短超时用）。
+    async fn send_with_timeout(
+        &mut self,
+        command: &str,
+        params: Value,
+        cmd_timeout: Duration,
+    ) -> Result<Value, Error> {
+        let started = Instant::now();
         let id = self.ids.allocate_id();
         // Marionette 命令：四元素数组 [0, id, command, params]
         let req = json!([0, id, command, params]);
         write_frame(&mut self.stream, &req).await?;
-        loop {
-            let frame = read_frame(&mut self.stream).await?;
+        let result = loop {
+            // 命令级超时：Firefox 挂起（JS 死循环/网络异常）时不永久阻塞（design.md §8）
+            let frame = timeout(cmd_timeout, read_frame(&mut self.stream)).await??;
             // 响应：数组 [1, id, error|null, result]
             let is_response = frame
                 .as_array()
@@ -237,10 +286,16 @@ impl MarionetteTransport {
             let arr = frame.as_array().expect("已校验为数组");
             let error = &arr[2];
             if !error.is_null() {
-                return Err(marionette_error(error));
+                break Err(marionette_error(error));
             }
-            return Ok(arr[3].clone());
-        }
+            break Ok(arr[3].clone());
+        };
+        tracing::debug!(
+            command,
+            elapsed_ms = started.elapsed().as_millis() as u64,
+            "marionette 命令完成"
+        );
+        result
     }
 }
 
@@ -385,15 +440,19 @@ mod tests {
             .await;
             // 命令 1：NewSession（数组格式 [0, id, command, params]）
             let cmd = read_frame_raw(&mut sock).await;
+            assert_eq!(cmd[0], 0, "命令首元素应为方向 0（Incoming）");
             assert_eq!(cmd[2], "WebDriver:NewSession");
+            let id1 = cmd[1].as_u64().expect("命令 id 应为数字");
             write_frame_raw(
                 &mut sock,
-                &json!([1, cmd[1].clone(), Value::Null, {"sessionId": "s1"}]),
+                &json!([1, id1, Value::Null, {"sessionId": "s1"}]),
             )
             .await;
             // 命令 2：GetPageSource，响应前插入事件帧干扰
             let cmd2 = read_frame_raw(&mut sock).await;
+            assert_eq!(cmd2[0], 0);
             assert_eq!(cmd2[2], "WebDriver:GetPageSource");
+            assert_ne!(cmd2[1].as_u64(), Some(id1), "命令 id 应递增");
             write_frame_raw(&mut sock, &json!([2, 0, "Marionette:Quit", {}])).await;
             write_frame_raw(
                 &mut sock,
@@ -467,5 +526,34 @@ mod tests {
         let mut stream = TcpStream::connect(addr).await.unwrap();
         let v = read_frame(&mut stream).await.unwrap();
         assert_eq!(v[0], 1);
+    }
+
+    /// 命令级超时：服务端收命令后不响应 → Error::Timeout（design.md §8 不挂死）。
+    #[tokio::test]
+    async fn send_times_out_when_no_response() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.unwrap();
+            write_frame_raw(
+                &mut sock,
+                &json!({"applicationType": "gecko", "marionetteProtocol": 3}),
+            )
+            .await;
+            let _cmd = read_frame_raw(&mut sock).await;
+            // 保持连接打开但不响应，直到客户端超时
+            tokio::time::sleep(Duration::from_secs(3)).await;
+        });
+        let stream = TcpStream::connect(addr).await.unwrap();
+        let mut t = MarionetteTransport::connect(stream).await.unwrap();
+        let err = t
+            .send_with_timeout(
+                "WebDriver:GetPageSource",
+                json!({}),
+                Duration::from_millis(300),
+            )
+            .await
+            .unwrap_err();
+        assert!(matches!(err, Error::Timeout(_)));
     }
 }

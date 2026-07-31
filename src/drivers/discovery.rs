@@ -84,6 +84,27 @@ fn search_path(names: &[&str]) -> Option<PathBuf> {
     None
 }
 
+/// 读取浏览器主版本号（`--version` 输出解析，如 "Mozilla Firefox 140.10.0esr" → 140、
+/// "Google Chrome 123.0.6312.106" → 123）。读取失败返回 `None`。
+pub fn browser_major_version(binary: &std::path::Path) -> Option<u32> {
+    let out = std::process::Command::new(binary)
+        .arg("--version")
+        .output()
+        .ok()?;
+    parse_major_version(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// 从 `--version` 输出文本解析主版本号（纯函数，便于测试）。
+fn parse_major_version(text: &str) -> Option<u32> {
+    let token = text
+        .split_whitespace()
+        .find(|w| w.chars().next().is_some_and(|c| c.is_ascii_digit()))?;
+    token
+        .split(|c: char| !c.is_ascii_digit())
+        .next()
+        .and_then(|major| major.parse().ok())
+}
+
 #[cfg(unix)]
 fn is_executable(path: &std::path::Path) -> bool {
     use std::os::unix::fs::PermissionsExt;
@@ -114,5 +135,20 @@ mod tests {
     fn fake_kind_has_no_binary() {
         let err = find_browser(BrowserKind::Fake).unwrap_err();
         assert!(matches!(err, Error::Internal(_)));
+    }
+
+    #[test]
+    fn parses_firefox_and_chrome_version_strings() {
+        assert_eq!(
+            parse_major_version("Mozilla Firefox 140.10.0esr"),
+            Some(140)
+        );
+        assert_eq!(
+            parse_major_version("Google Chrome 123.0.6312.106"),
+            Some(123)
+        );
+        assert_eq!(parse_major_version("Mozilla Firefox 58.0.1"), Some(58));
+        assert_eq!(parse_major_version("unexpected output"), None);
+        assert_eq!(parse_major_version(""), None);
     }
 }
