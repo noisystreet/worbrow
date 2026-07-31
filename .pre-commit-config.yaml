@@ -1,0 +1,12 @@
+# pre-commit 配置（与 CI 同一套检查入口）
+# 安装：pre-commit install；手动运行：pre-commit run --all-files
+# 注意：rustfmt/clippy 等 Rust 检查由 Makefile 与 CI 承担（见 .github/workflows/ci.yml），
+# pre-commit 只负责通用文件级钩子，避免镜像仓库网络依赖。
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-added-large-files

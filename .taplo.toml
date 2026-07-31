@@ -1,0 +1,5 @@
+# taplo 配置（Cargo.toml 等 TOML 文件格式化）
+# 用法：taplo fmt（未安装时可用 `make fmt-toml` 或忽略）
+
+[[entry]]
+pattern = "Cargo.toml"

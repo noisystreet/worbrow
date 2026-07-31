@@ -1,0 +1,64 @@
+//! CLI 级测试：真实二进制进程的退出码、stdout JSON 契约与子命令（design.md §6.1/§7）。
+//! 需要已构建的 binary（`cargo test` 会自动构建）。
+
+use assert_cmd::Command;
+use serde_json::Value;
+
+/// 运行 `search` 并返回 (exit_code, stdout_str)。
+fn run(args: &[&str]) -> (i32, String) {
+    let output = Command::cargo_bin("search")
+        .expect("binary 应存在")
+        .args(args)
+        .output()
+        .expect("进程应运行成功");
+    (
+        output.status.code().expect("应捕获退出码"),
+        String::from_utf8(output.stdout).expect("stdout 应为 UTF-8"),
+    )
+}
+
+/// 解析 stdout 为 JSON。
+fn parse_json(s: &str) -> Value {
+    serde_json::from_str(s).expect("stdout 应为合法 JSON")
+}
+
+#[test]
+fn list_subcommand_lists_engines() {
+    let (code, out) = run(&["list"]);
+    assert_eq!(code, 0);
+    assert!(out.lines().any(|l| l == "duckduckgo"));
+}
+
+#[test]
+fn doctor_subcommand_exits_zero() {
+    let (code, out) = run(&["doctor"]);
+    assert_eq!(code, 0);
+    assert!(out.contains("引擎注册表"));
+    assert!(out.contains("chrome (CDP)"));
+}
+
+#[test]
+fn missing_query_is_cli_error_json() {
+    let (code, out) = run(&[]);
+    assert_eq!(code, 2);
+    let json = parse_json(&out);
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["error"]["code"], "cli");
+}
+
+#[test]
+fn unknown_engine_is_cli_error() {
+    let (code, out) = run(&["--engine", "google", "rust"]);
+    assert_eq!(code, 2); // clap 参数解析失败
+    assert!(out.is_empty() || out.contains("error")); // clap 错误走 stderr，stdout 为空
+}
+
+#[test]
+fn default_chrome_backend_reports_not_implemented() {
+    // 骨架阶段：真实 CDP 后端未实现 → 错误 JSON 包 + exit 1
+    let (code, out) = run(&["--json", "rust"]);
+    assert_eq!(code, 1);
+    let json = parse_json(&out);
+    assert_eq!(json["schema_version"], 1);
+    assert_eq!(json["error"]["code"], "not_implemented");
+}
