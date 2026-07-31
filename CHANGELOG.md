@@ -6,6 +6,9 @@
 
 ### Added
 
+- **Debian 打包（cargo-deb）**：`make deb` 生成 `target/debian/rplay-search_*.deb`
+  （发布形态启用 mcp feature）；`Recommends: firefox | firefox-esr` 运行时弱依赖；
+  CI 新增 deb 构建与内容校验 job
 - **MCP stdio server（`search mcp`，需 `--features mcp` 编译）**：rmcp 2.2 官方
   SDK，stdio 传输；`search` 工具（query/engine/browser/max_results/timeout）复用
   `app::run`，成功/失败包 JSON 经 `tools/call` 返回；`browser=fake` 冒烟免浏览器；

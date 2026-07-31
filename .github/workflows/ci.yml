@@ -35,3 +35,25 @@ jobs:
 
       - name: machete (unused dependencies)
         uses: bnjbvr/cargo-machete@main
+
+  deb:
+    name: deb package
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@cargo-deb
+
+      - name: build deb
+        run: cargo deb --features mcp
+
+      - name: verify deb
+        run: |
+          DEB=$(ls target/debian/*.deb | head -n1)
+          dpkg-deb --info "$DEB" | sed -n '1,20p'
+          dpkg-deb --contents "$DEB" | grep -q '/usr/bin/search'
+          echo "deb OK: $DEB"

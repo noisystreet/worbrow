@@ -43,6 +43,14 @@ pretty_assertions = "1.4.1"
 default = []
 mcp = ["dep:rmcp"]
 
+# Debian 打包（`make deb` / CI，cargo-deb 3.x）：发布形态启用 mcp feature
+[package.metadata.deb]
+maintainer = "rplay-search maintainers <rplay-search@example.invalid>" # TODO: 设置真实维护者
+section = "utils"
+priority = "optional"
+# 运行时需任一浏览器（Chrome/Edge 亦可，故为弱依赖）
+recommends = "firefox | firefox-esr"
+
 # 安全基线：依赖树许可与漏洞检查（cargo-deny）
 [package.metadata.deny]
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]

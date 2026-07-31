@@ -10,12 +10,33 @@ Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，F
 
 ```bash
 cargo run -- list                    # 列出可用引擎
-cargo run -- doctor                  # 环境自检（骨架阶段：引擎/后端状态）
+cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/后端状态）
 cargo run -- "rust 异步运行时" --json --engine duckduckgo
 ```
 
-> 骨架阶段仅 `fake` 驱动可用（测试用）；`chrome`/`firefox` 后端为 V1 待实现桩，
-> 运行时报 `not_implemented`（exit 1）。协议实现见 [ADR-002](docs/adr/0002-browser-driver-protocols.md)。
+当前后端状态：`firefox`（Marionette，自研协议）已实现；`chrome`（CDP）为 V1 待实现桩；
+`fake` 供测试/冒烟。协议实现见 [ADR-002](docs/adr/0002-browser-driver-protocols.md)。
+
+### 安装（Debian/Ubuntu）
+
+发布形态的 `.deb` 含 MCP 支持（`search mcp`）：
+
+```bash
+make deb                       # 生成 target/debian/rplay-search_*.deb
+sudo apt install ./target/debian/rplay-search_*.deb
+```
+
+或直接在 CI 产物/发布页安装；运行时弱依赖 Firefox（Recommends: firefox | firefox-esr）。
+
+### MCP（Model Context Protocol）
+
+```bash
+cargo build --features mcp
+```
+
+以 MCP stdio server 运行 `search mcp`，向 MCP 客户端暴露 `search` 工具
+（query/engine/browser/max_results/timeout），工具结果复用输出契约（schema v1）。
+设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
 
 ## 调用契约（agent 侧）
 
@@ -42,7 +63,7 @@ cargo run -- "rust 异步运行时" --json --engine duckduckgo
 
 ```bash
 make check      # fmt + clippy(-D warnings) + test
-make test       # cargo test（18 个单测/集成测试，CI 无需浏览器）
+make test       # cargo test（`cargo test --features mcp` 全量 38 个，CI 无需浏览器）
 make deny       # cargo-deny 许可/漏洞检查
 make machete    # 未使用依赖检查
 make doctor     # 运行 search doctor
