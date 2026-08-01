@@ -19,6 +19,12 @@ pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
 pub struct SearchQuery {
     pub text: String,
     pub max_results: usize,
+    /// 结果语言（引擎相关，如 Bing `setlang`）；`None` = 引擎默认。
+    pub lang: Option<String>,
+    /// 结果地域/市场（如 Bing `mkt`、DDG `kl`）；`None` = 引擎默认。
+    pub region: Option<String>,
+    /// 翻页聚合页数（≥1）；1 = 仅首页。
+    pub pages: usize,
 }
 
 /// 单条搜索结果（DTO，跨边界唯一传递形态，禁止泄漏 DOM 结构）。
@@ -48,6 +54,8 @@ pub struct SearchMeta {
     pub started_at: DateTime<Utc>,
     pub elapsed_ms: u64,
     pub result_count: usize,
+    /// 实际聚合的页数（schema v1 新增字段，`pages` 请求参数）。
+    pub pages: usize,
     /// 结果数 < 3 时置 true，提示 agent 结果不可靠（design.md §10.4）。
     pub low_yield: bool,
     pub captcha: bool,

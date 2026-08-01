@@ -30,6 +30,12 @@ pub struct Config {
     timeout: Duration,
     screenshot: Option<PathBuf>,
     dump_html: Option<PathBuf>,
+    /// 结果语言（`SearchQuery.lang`）；`None` = 引擎默认。
+    lang: Option<String>,
+    /// 结果地域/市场（`SearchQuery.region`）；`None` = 引擎默认。
+    region: Option<String>,
+    /// 翻页聚合页数（`SearchQuery.pages`）；1 = 仅首页。
+    pages: usize,
     /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
     driver: Option<Box<dyn BrowserDriver>>,
     /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
@@ -47,6 +53,9 @@ impl Config {
             timeout: Duration::from_secs(crate::domain::DEFAULT_TIMEOUT_SECS),
             screenshot: None,
             dump_html: None,
+            lang: None,
+            region: None,
+            pages: 1,
             driver: None,
             provider: None,
         }
@@ -81,6 +90,24 @@ impl Config {
     /// 注入自定义引擎（`SearchProvider` 实现；优先级高于 `engine` 注册表）。
     pub fn with_provider(mut self, provider: Box<dyn SearchProvider>) -> Self {
         self.provider = Some(provider);
+        self
+    }
+
+    /// 结果语言（如 `zh-hans`，Bing `setlang`；`None` = 引擎默认）。
+    pub fn with_lang(mut self, lang: Option<String>) -> Self {
+        self.lang = lang;
+        self
+    }
+
+    /// 结果地域/市场（如 `zh-CN`，Bing `mkt` / DDG `kl`；`None` = 引擎默认）。
+    pub fn with_region(mut self, region: Option<String>) -> Self {
+        self.region = region;
+        self
+    }
+
+    /// 翻页聚合页数（≥1，clamp；1 = 仅首页）。
+    pub fn with_pages(mut self, pages: usize) -> Self {
+        self.pages = pages.max(1);
         self
     }
 }
@@ -178,48 +205,84 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
     let query = SearchQuery {
         text: text.to_string(),
         max_results: config.max_results.max(1),
+        lang: config.lang.clone(),
+        region: config.region.clone(),
+        pages: config.pages.max(1),
     };
 
-    // 4-8. 包整体硬超时
-    let (html, results, captcha) = timeout(config.timeout, async {
-        let step = Instant::now();
-        driver.navigate(provider.result_url(&query)).await?;
-        tracing::info!(
-            elapsed_ms = step.elapsed().as_millis() as u64,
-            "navigate 完成"
-        );
-
-        // 6. 等待结果容器出现：二级超时（页面加载预算内截断，design.md §6.2）
+    // 4-8. 包整体硬超时（翻页聚合：逐页 navigate → 解析 → 按 URL 去重合并）
+    let (html, results, captcha, fetched_pages) = timeout(config.timeout, async {
         let wait_budget = config.timeout.min(WAIT_BUDGET);
-        let step = Instant::now();
-        driver
-            .wait_for(provider.result_selector(), wait_budget)
-            .await?;
-        tracing::info!(
-            elapsed_ms = step.elapsed().as_millis() as u64,
-            "wait_for 完成"
-        );
+        let mut seen = std::collections::HashSet::new();
+        let mut all = Vec::new();
+        let mut captcha = false;
+        let mut fetched_pages = 0usize;
+        let mut last_html = String::new();
 
-        let step = Instant::now();
-        let html = driver.html().await?;
-        tracing::info!(elapsed_ms = step.elapsed().as_millis() as u64, "html 完成");
+        for page in 1..=query.pages {
+            fetched_pages += 1;
+            let step = Instant::now();
+            let url = if page == 1 {
+                provider.result_url(&query)
+            } else {
+                provider.page_url(&query, page)
+            };
+            driver.navigate(url).await?;
+            tracing::info!(
+                elapsed_ms = step.elapsed().as_millis() as u64,
+                page,
+                "navigate 完成"
+            );
 
-        // 7. 验证码启发式检测（不中止）
-        let lower = html.to_lowercase();
-        let captcha = provider
-            .captcha_heuristics()
-            .iter()
-            .any(|h| lower.contains(h));
+            // 6. 等待结果容器出现：二级超时（页面加载预算内截断，design.md §6.2）
+            let step = Instant::now();
+            driver
+                .wait_for(provider.result_selector(), wait_budget)
+                .await?;
+            tracing::info!(
+                elapsed_ms = step.elapsed().as_millis() as u64,
+                page,
+                "wait_for 完成"
+            );
 
-        // 8. 抽取结果并截断
-        let mut results = provider.parse(&html)?;
-        results.truncate(query.max_results);
+            let step = Instant::now();
+            last_html = driver.html().await?;
+            tracing::info!(
+                elapsed_ms = step.elapsed().as_millis() as u64,
+                page,
+                "html 完成"
+            );
 
-        if captcha && results.is_empty() {
+            // 7. 验证码启发式检测（不中止）
+            let lower = last_html.to_lowercase();
+            captcha |= provider
+                .captcha_heuristics()
+                .iter()
+                .any(|h| lower.contains(h));
+
+            // 8. 抽取并去重合并（按 URL）
+            for r in provider.parse(&last_html)? {
+                if seen.insert(r.url.clone()) {
+                    all.push(r);
+                }
+            }
+            // 已集满 max_results 可提前停止翻页
+            if all.len() >= query.max_results {
+                break;
+            }
+        }
+
+        if captcha && all.is_empty() {
             return Err(Error::Captcha("检测到验证码且未取得任何结果".into()));
         }
 
-        Ok::<_, Error>((html, results, captcha))
+        // 去重后重排 rank 并截断
+        for (i, r) in all.iter_mut().enumerate() {
+            r.rank = i + 1;
+        }
+        all.truncate(query.max_results);
+
+        Ok::<_, Error>((last_html, all, captcha, fetched_pages))
     })
     .await??;
 
@@ -243,6 +306,7 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
         started_at,
         elapsed_ms,
         result_count,
+        pages: fetched_pages,
         low_yield: result_count < LOW_YIELD_THRESHOLD,
         captcha,
         engine_error: None,
@@ -269,6 +333,9 @@ mod tests {
         );
         assert!(c.screenshot.is_none());
         assert!(c.dump_html.is_none());
+        assert!(c.lang.is_none());
+        assert!(c.region.is_none());
+        assert_eq!(c.pages, 1);
         assert!(c.driver.is_none());
         assert!(c.provider.is_none());
     }

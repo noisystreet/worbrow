@@ -54,7 +54,10 @@ fn run_cli() -> ExitCode {
         .with_max_results(cli.max_results)
         .with_timeout(std::time::Duration::from_secs(cli.timeout))
         .with_screenshot(cli.screenshot)
-        .with_dump_html(cli.dump_html);
+        .with_dump_html(cli.dump_html)
+        .with_lang(cli.lang)
+        .with_region(cli.region)
+        .with_pages(cli.pages);
 
     // 同步入口：内部管理 tokio runtime（CLI 保持薄封装）
     finish(&app::search(config), json)

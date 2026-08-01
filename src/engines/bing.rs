@@ -27,6 +27,22 @@ impl SearchProvider for Bing {
     fn result_url(&self, q: &SearchQuery) -> Url {
         let mut url = Url::parse(RESULT_URL).expect("静态 URL 应合法");
         url.query_pairs_mut().append_pair("q", &q.text);
+        if let Some(lang) = &q.lang {
+            url.query_pairs_mut().append_pair("setlang", lang);
+        }
+        if let Some(region) = &q.region {
+            url.query_pairs_mut().append_pair("mkt", region);
+        }
+        url
+    }
+
+    fn page_url(&self, q: &SearchQuery, page: usize) -> Url {
+        let mut url = self.result_url(q);
+        if page > 1 {
+            // Bing 每页 10 条，`first` 为起始偏移（0, 10, 20, ...）
+            url.query_pairs_mut()
+                .append_pair("first", &((page - 1) * 10).to_string());
+        }
         url
     }
 
@@ -99,10 +115,30 @@ mod tests {
         let q = SearchQuery {
             text: "rust 异步".into(),
             max_results: 10,
+            lang: Some("zh-hans".into()),
+            region: Some("zh-CN".into()),
+            pages: 1,
         };
         let url = Bing.result_url(&q);
         assert_eq!(url.host_str(), Some("www.bing.com"));
         assert!(url.as_str().contains("q=rust+%E5%BC%82%E6%AD%A5"));
+        assert!(url.as_str().contains("setlang=zh-hans"));
+        assert!(url.as_str().contains("mkt=zh-CN"));
+    }
+
+    #[test]
+    fn page_url_appends_first_offset() {
+        let q = SearchQuery {
+            text: "rust".into(),
+            max_results: 10,
+            lang: None,
+            region: None,
+            pages: 2,
+        };
+        // 第 2 页：first=10（每页 10 条）
+        assert!(Bing.page_url(&q, 2).as_str().contains("first=10"));
+        // 第 1 页：无 first 参数（与 result_url 一致）
+        assert!(!Bing.page_url(&q, 1).as_str().contains("first="));
     }
 
     #[test]

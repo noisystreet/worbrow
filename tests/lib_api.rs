@@ -78,6 +78,15 @@ fn defaults_are_reachable_from_root() {
 }
 
 #[test]
+fn pages_param_is_exposed_to_library_users() {
+    // fake 驱动每页返回相同 HTML（去重后仍 3 条），验证翻页参数外部可达
+    let config = Config::new("rust", DEFAULT_ENGINE, BrowserKind::Fake).with_pages(2);
+    let outcome = worbrow::search(config).expect("fake 驱动应成功");
+    assert_eq!(outcome.meta.pages, 2, "实际聚合页数应透传");
+    assert_eq!(outcome.results.len(), 3, "相同 HTML 去重后保持 3 条");
+}
+
+#[test]
 fn output_contract_is_schema_v1() {
     let config = Config::new("rust", DEFAULT_ENGINE, BrowserKind::Fake);
     let outcome = worbrow::search(config).expect("fake 驱动应成功");

@@ -151,3 +151,91 @@ async fn slow_driver_triggers_timeout_error() {
     // 退出码契约：超时 = 124（design.md §7.2）
     assert_eq!(err.exit_code(), 124);
 }
+
+/// 翻页驱动：按 navigate 顺序依次返回各页 HTML（验证翻页聚合，无需真实浏览器）。
+#[derive(Debug)]
+struct PageDriver {
+    pages: Vec<String>,
+    next: usize,
+    current: usize,
+}
+
+impl PageDriver {
+    fn new(pages: Vec<String>) -> Self {
+        Self {
+            pages,
+            next: 0,
+            current: 0,
+        }
+    }
+}
+
+#[async_trait]
+impl BrowserDriver for PageDriver {
+    async fn navigate(&mut self, _url: Url) -> Result<(), Error> {
+        self.current = self.next.min(self.pages.len().saturating_sub(1));
+        self.next += 1;
+        Ok(())
+    }
+
+    async fn wait_for(&mut self, _selector: &str, _timeout: Duration) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn html(&self) -> Result<String, Error> {
+        Ok(self.pages[self.current].clone())
+    }
+
+    async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+        Ok(serde_json::Value::Null)
+    }
+
+    async fn screenshot(&mut self, _path: &Path) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+/// 第 2 页 HTML：DDG 结构，2 条新结果 + 1 条与首页重复（验证去重）。
+fn page2_html() -> String {
+    r#"<html><body>
+        <div class="result"><a class="result__a" href="https://example.com/p2a">P2A</a><a class="result__snippet">p2a snippet</a></div>
+        <div class="result"><a class="result__a" href="https://example.com/rust">重复</a><a class="result__snippet">dup</a></div>
+        <div class="result"><a class="result__a" href="https://example.com/p2b">P2B</a><a class="result__snippet">p2b snippet</a></div>
+        </body></html>"#
+    .to_string()
+}
+
+#[tokio::test]
+async fn pages_aggregate_deduplicate_and_rerank() {
+    // 首页 fixture 3 条 + 第 2 页 3 条（1 条与首页 URL 重复）→ 合并后 5 条
+    let cfg = config("rust")
+        .with_pages(2)
+        .with_max_results(10)
+        .with_driver(Box::new(PageDriver::new(vec![
+            FIXTURE.to_string(),
+            page2_html(),
+        ])));
+    let outcome = app::run(cfg).await.expect("翻页聚合应成功");
+    assert_eq!(outcome.results.len(), 5, "去重后应合并 5 条");
+    // rank 重排 1..=5
+    for (i, r) in outcome.results.iter().enumerate() {
+        assert_eq!(r.rank, i + 1, "rank 应重排");
+    }
+    // meta 记录实际聚合页数
+    assert_eq!(outcome.meta.pages, 2);
+}
+
+#[tokio::test]
+async fn pages_stop_early_when_max_results_reached() {
+    // max_results=2：第 1 页即满 → 提前停止翻页，meta.pages=1
+    let cfg = config("rust")
+        .with_pages(3)
+        .with_max_results(2)
+        .with_driver(Box::new(PageDriver::new(vec![
+            FIXTURE.to_string(),
+            page2_html(),
+        ])));
+    let outcome = app::run(cfg).await.expect("提前停止应成功");
+    assert_eq!(outcome.results.len(), 2);
+    assert_eq!(outcome.meta.pages, 1, "集满 max_results 后应停止翻页");
+}
