@@ -57,7 +57,11 @@ fn run_cli() -> ExitCode {
         .with_dump_html(cli.dump_html)
         .with_lang(cli.lang)
         .with_region(cli.region)
-        .with_pages(cli.pages);
+        .with_pages(cli.pages)
+        .with_freshness(cli.freshness.map(|f| f.to_domain()))
+        .with_safesearch(cli.safesearch.map(|s| s.to_domain()))
+        .with_site(cli.site)
+        .with_filetype(cli.filetype);
 
     // 同步入口：内部管理 tokio runtime（CLI 保持薄封装）
     finish(&app::search(config), json)

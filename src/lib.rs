@@ -49,7 +49,7 @@ pub(crate) mod domain;
 pub use app::{BackendStatus, Config, DoctorReport, Outcome, run, search};
 pub use domain::{
     BrowserKind, DEFAULT_BROWSER, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS,
-    EngineError, SearchMeta, SearchQuery, SearchResult,
+    EngineError, Freshness, SafesearchLevel, SearchMeta, SearchQuery, SearchResult,
 };
 pub mod drivers;
 pub mod engines;

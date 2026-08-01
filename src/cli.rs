@@ -49,6 +49,22 @@ pub struct Cli {
     #[arg(long)]
     pub region: Option<String>,
 
+    /// 时间过滤窗口（day|week|month|year；不指定 = 不限时间）
+    #[arg(long, value_enum)]
+    pub freshness: Option<FreshnessArg>,
+
+    /// 安全搜索级别（off|moderate|strict；不指定 = 引擎默认）
+    #[arg(long, value_enum)]
+    pub safesearch: Option<SafesearchArg>,
+
+    /// 站点过滤（query 级 site: 语法，如 doc.rust-lang.org）
+    #[arg(long)]
+    pub site: Option<String>,
+
+    /// 文件类型过滤（query 级 filetype: 语法，如 pdf）
+    #[arg(long)]
+    pub filetype: Option<String>,
+
     /// JSON 输出（agent 调用必带）
     #[arg(long)]
     pub json: bool,
@@ -100,6 +116,44 @@ impl BrowserArg {
             BrowserArg::Firefox => "firefox",
         })
         .expect("clap 变体名必然可被 BrowserKind::from_arg 解析")
+    }
+}
+
+/// 时间过滤窗口（clap value_enum，与 `domain::Freshness` 一一对应）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum FreshnessArg {
+    Day,
+    Week,
+    Month,
+    Year,
+}
+
+impl FreshnessArg {
+    pub fn to_domain(self) -> worbrow::Freshness {
+        match self {
+            FreshnessArg::Day => worbrow::Freshness::Day,
+            FreshnessArg::Week => worbrow::Freshness::Week,
+            FreshnessArg::Month => worbrow::Freshness::Month,
+            FreshnessArg::Year => worbrow::Freshness::Year,
+        }
+    }
+}
+
+/// 安全搜索级别（clap value_enum，与 `domain::SafesearchLevel` 一一对应）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum SafesearchArg {
+    Off,
+    Moderate,
+    Strict,
+}
+
+impl SafesearchArg {
+    pub fn to_domain(self) -> worbrow::SafesearchLevel {
+        match self {
+            SafesearchArg::Off => worbrow::SafesearchLevel::Off,
+            SafesearchArg::Moderate => worbrow::SafesearchLevel::Moderate,
+            SafesearchArg::Strict => worbrow::SafesearchLevel::Strict,
+        }
     }
 }
 
