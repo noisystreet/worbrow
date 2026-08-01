@@ -20,6 +20,8 @@ cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/
 cargo run -- "rust 异步运行时" --json   # 默认引擎 bing、默认超时 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # 翻页聚合 + 语言/地域
+cargo run -- "rust" --freshness week --safesearch strict                       # 时间过滤 + 安全搜索
+cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # 站点/文件类型过滤
 cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低产时自动尝试下一个）
 ```
 
@@ -44,8 +46,8 @@ cargo build --release
 ```
 
 以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露 `web_search` 工具
-（query/engine/browser/max_results/timeout/lang/region/pages），工具结果复用
-输出契约（schema v1）。
+（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype），
+工具结果复用输出契约（schema v1）。
 设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
 （若不需要 MCP：`cargo build --no-default-features`）
 
@@ -90,7 +92,8 @@ worbrow 提供两种 agent 接入方式：**MCP**（推荐，长驻进程 + 工�
 }
 ```
 
-工具暴露：`web_search`（参数含 engine/browser/max_results/timeout/lang/region/pages）。
+工具暴露：`web_search`（参数含 engine/browser/max_results/timeout/lang/region/pages/
+freshness/safesearch/site/filetype）。
 
 ### CLI 子进程（无 MCP 客户端时）
 
