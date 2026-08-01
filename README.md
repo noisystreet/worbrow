@@ -46,9 +46,12 @@ sudo apt install ./target/debian/worbrow_*.deb
 cargo build --release
 ```
 
-以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露 `web_search` 工具
-（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache），
-工具结果复用输出契约（schema v1）。
+以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露工具：
+- `web_search`（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache/compact）
+- `list_engines`（列出可用引擎）、`doctor`（环境自检：浏览器二进制/版本/引擎注册表）
+
+工具结果复用输出契约（schema v1）。`compact=true` 时 `web_search` 结果仅含
+rank/title/url（省 agent 上下文 token，meta 完整）。
 设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
 （若不需要 MCP：`cargo build --no-default-features`）
 

@@ -115,15 +115,15 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 验证 | app 单测（退避序列/瞬时失败重试成功/耗尽返回/验证码不重试）+ MCP 缓存单测（命中/key 区分/TTL/LRU）+ MCP 集成（相同 query 二次 cached=true、no_cache 绕过） |
 | 风险 | 缓存时效性（TTL 60s，命中刷新；`no_cache` 逃生阀）；重试放大延迟（退避封顶 8s + 全局 timeout 兜底） |
 
-### P1：MCP 体验完善（compact 精简模式 + 工具面）
+### P1：MCP 体验完善（compact 精简模式 + 工具面）—— ✅ 已完成（2026-08）
 
 | 项 | 内容 |
 |---|---|
 | 现状 | 单 `web_search` 工具；结果全量返回（完整 snippet），agent 上下文预算敏感时浪费 token |
 | 目标 | `compact` 精简模式（title+url）；`list_engines`/`doctor` 工具（agent 自查环境，无需读错误码） |
-| 改动点 | ① [mcp.rs](../src/mcp.rs)：`SearchParams` 新增 `compact: bool`（结果截断为 title+url）；② 新增 `list_engines`/`doctor` 工具（复用 [engines/mod.rs](../src/engines/mod.rs) `AVAILABLE` 与 [app.rs](../src/app.rs) `DoctorReport`） |
-| 契约影响 | 输出 schema 不变（compact 为请求参数，语义等同 max_results 截断的只读视图）；新工具对既有客户端无感 |
-| 验证 | MCP 测试：compact 输出断言（无 snippet）、新工具出现在 tools/list |
+| 改动点 | ① [output.rs](../src/output.rs) 新增 `success_compact`（results 仅 rank/title/url，meta 完整）；② [mcp.rs](../src/mcp.rs) `SearchParams` 新增 `compact: bool`（缓存命中路径同样生效）；③ 新增 `list_engines`（复用 `engines::AVAILABLE`）/`doctor`（复用 `DoctorReport`，后者加 Serialize）工具 |
+| 契约影响 | 输出 schema v1 不变（compact 为请求参数，精简只读视图；结果字段减少但语义等同 max_results 截断）；新工具对既有客户端无感 |
+| 验证 | output 单测（compact 仅含 rank/title/url）+ MCP 集成（compact 输出无 snippet、list_engines/doctor 出现在 tools/list 且调用成功） |
 | 风险 | 低 |
 
 ### P2：新引擎（baidu）
@@ -139,6 +139,7 @@ CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → �
 
 > 会话复用：已落地（ADR-007，见 §3 P1 章节）。
 > 网络重试与缓存：已落地（ADR-008，见 §3 P1 章节）。
+> MCP 体验完善：已落地（见 §3 P1 章节）。
 
 - 每步独立可验证、可回退；完成后同步 `doctor`、README、CHANGELOG
 - 不承诺时间；重要取舍（如 CDP 传输层、会话池默认策略）以 ADR 记录
