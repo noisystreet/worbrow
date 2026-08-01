@@ -200,8 +200,14 @@ run(config) -> Outcome
 ### 6.3 领域模型（`domain.rs`）
 
 ```rust
-pub struct SearchQuery { pub text: String, pub max_results: usize }
-
+pub struct SearchQuery {
+    pub text: String,
+    pub max_results: usize,
+    pub lang: Option<String>,   // 结果语言（如 zh-hans，Bing setlang）
+    pub region: Option<String>, // 结果地域/市场（如 zh-CN，Bing mkt / DDG kl）
+    pub pages: usize,           // 翻页聚合页数（≥1；1 = 仅首页）
+}
+```
 #[derive(Serialize)]
 pub struct SearchResult {
     pub rank: usize,
@@ -299,6 +305,7 @@ pub trait SearchProvider: Send + Sync {
     "started_at": "2026-07-31T08:00:00Z",
     "elapsed_ms": 1842,
     "result_count": 8,
+    "pages": 2,
     "low_yield": false,
     "captcha": false,
     "engine_error": null
