@@ -1,6 +1,8 @@
 # worbrow
 
 [![CI](https://github.com/noisystreet/worbrow/actions/workflows/ci.yml/badge.svg)](https://github.com/noisystreet/worbrow/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
+[![MSRV](https://img.shields.io/badge/MSRV-1.97-blue)](https://github.com/noisystreet/worbrow)
 
 Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，Firefox 走 Marionette，协议层自研）在通用搜索引擎上执行搜索，输出稳定 JSON 契约供 AI agent 以子进程方式调用。
 
