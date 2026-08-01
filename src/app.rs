@@ -7,6 +7,7 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
+use serde::Serialize;
 use tokio::time::timeout;
 
 use crate::SearchResult;
@@ -195,7 +196,8 @@ pub struct Outcome {
 }
 
 /// 环境自检结果（design.md §10）：引擎注册表 + 各浏览器后端状态。
-#[derive(Debug)]
+/// `Serialize` 供 MCP `doctor` 工具输出（schemas/JSON；CLI `doctor` 为人读文本）。
+#[derive(Debug, Serialize)]
 pub struct DoctorReport {
     /// 可用引擎（注册表顺序）。
     pub engines: Vec<&'static str>,
@@ -204,7 +206,7 @@ pub struct DoctorReport {
 }
 
 /// 单个浏览器后端状态。
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct BackendStatus {
     pub kind: BrowserKind,
     /// 找到的二进制路径；`None` 表示未找到。

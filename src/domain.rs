@@ -105,7 +105,9 @@ pub struct SearchMeta {
 }
 
 /// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；零依赖纯枚举）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// `Serialize` 供 `doctor` 工具输出（lowercase，与 CLI 参数一致）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
 pub enum BrowserKind {
     /// Chrome / Edge / Chromium（CDP）
     Chrome,

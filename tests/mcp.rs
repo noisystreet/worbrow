@@ -150,6 +150,13 @@ async fn tools_list_exposes_web_search_tool() {
         tools.iter().any(|t| t["name"] == "web_search"),
         "tools 应包含 web_search 工具（实际: {tools:?}）"
     );
+    // MCP 体验完善：新增 list_engines / doctor 工具
+    for tool in ["list_engines", "doctor"] {
+        assert!(
+            tools.iter().any(|t| t["name"] == tool),
+            "tools 应包含 {tool} 工具（实际: {tools:?}）"
+        );
+    }
     // 输入 schema 应带 query 必填字段
     let web_search = tools
         .iter()
@@ -160,6 +167,14 @@ async fn tools_list_exposes_web_search_tool() {
         .cloned()
         .unwrap_or_default();
     assert!(required.contains(&Value::String("query".into())));
+    // web_search 输入 schema 应含 compact 参数（MCP 体验完善）
+    let props = web_search["inputSchema"]["properties"]
+        .as_object()
+        .unwrap_or_else(|| panic!("web_search 应有 properties（实际: {web_search}）"));
+    assert!(
+        props.contains_key("compact"),
+        "web_search 输入应含 compact 参数（实际: {props:?}）"
+    );
     client.kill().await;
 }
 
@@ -410,6 +425,114 @@ async fn tools_call_hits_cache_on_repeat_query() {
     assert_eq!(
         bypass_payload["meta"]["cached"], false,
         "no_cache 应绕过缓存"
+    );
+    client.kill().await;
+}
+
+/// compact 精简模式：results 仅 rank/title/url（无 snippet/domain），meta 完整保留。
+#[tokio::test]
+async fn tools_call_compact_output_omits_snippet() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "web_search",
+                "arguments": {
+                    "query": "rust compact",
+                    "browser": "fake",
+                    "max_results": 3,
+                    "timeout": 10,
+                    "compact": true
+                }
+            }),
+        )
+        .await;
+    assert!(
+        resp.get("error").is_none(),
+        "compact 不应有协议错误（实际: {resp}）"
+    );
+    let text = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("应有文本");
+    let payload: Value = serde_json::from_str(text).expect("成功包 JSON");
+    assert_eq!(payload["schema_version"], 1);
+    // 精简条目：仅 rank/title/url
+    assert!(
+        payload["results"][0].get("snippet").is_none(),
+        "compact 不含 snippet"
+    );
+    assert!(
+        payload["results"][0].get("domain").is_none(),
+        "compact 不含 domain"
+    );
+    assert!(
+        payload["results"][0].get("title").is_some(),
+        "compact 含 title"
+    );
+    assert!(payload["results"][0].get("url").is_some(), "compact 含 url");
+    // meta 完整保留
+    assert_eq!(payload["meta"]["engine"], "bing");
+    client.kill().await;
+}
+
+/// list_engines：返回可用引擎数组。
+#[tokio::test]
+async fn tools_call_list_engines_returns_available() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call(
+            "tools/call",
+            json!({"name": "list_engines", "arguments": {}}),
+        )
+        .await;
+    assert!(
+        resp.get("error").is_none(),
+        "list_engines 不应有协议错误（实际: {resp}）"
+    );
+    let text = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("应有文本");
+    let engines: Vec<Value> = serde_json::from_str(text).expect("引擎列表 JSON");
+    assert!(
+        engines.iter().any(|e| e == "bing"),
+        "应含 bing（实际: {engines:?}）"
+    );
+    assert!(
+        engines.iter().any(|e| e == "duckduckgo"),
+        "应含 duckduckgo（实际: {engines:?}）"
+    );
+    client.kill().await;
+}
+
+/// doctor：返回环境自检报告（engines + backends 字段）。
+#[tokio::test]
+async fn tools_call_doctor_returns_report() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call("tools/call", json!({"name": "doctor", "arguments": {}}))
+        .await;
+    assert!(
+        resp.get("error").is_none(),
+        "doctor 不应有协议错误（实际: {resp}）"
+    );
+    let text = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("应有文本");
+    let report: Value = serde_json::from_str(text).expect("doctor 报告 JSON");
+    assert!(
+        report.get("engines").is_some(),
+        "应含 engines（实际: {report}）"
+    );
+    assert!(
+        report.get("backends").is_some(),
+        "应含 backends（实际: {report}）"
     );
     client.kill().await;
 }
