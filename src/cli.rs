@@ -65,6 +65,10 @@ pub struct Cli {
     #[arg(long)]
     pub filetype: Option<String>,
 
+    /// 瞬时网络错误重试次数（指数退避，封顶；仅网络错误触发）
+    #[arg(long, default_value_t = 0)]
+    pub retry: usize,
+
     /// JSON 输出（agent 调用必带）
     #[arg(long)]
     pub json: bool,
