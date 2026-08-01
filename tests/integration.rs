@@ -204,12 +204,14 @@ impl BrowserDriver for PageDriver {
     }
 }
 
-/// 第 2 页 HTML：DDG 结构，2 条新结果 + 1 条与首页重复（验证去重）。
+/// 第 2 页 HTML：DDG 结构，2 条新结果 + 1 条与首页 URL 重复（验证 URL 级去重）。
+/// 新 URL 使用不同域名，规避 P2 同域名去重（DOMAIN_LIMIT）对聚合语义的干扰——
+/// 同域名去重另有专项测试（app::tests::domain_flooding_is_capped）。
 fn page2_html() -> String {
     r#"<html><body>
-        <div class="result"><a class="result__a" href="https://example.com/p2a">P2A</a><a class="result__snippet">p2a snippet</a></div>
+        <div class="result"><a class="result__a" href="https://example.net/p2a">P2A</a><a class="result__snippet">p2a snippet</a></div>
         <div class="result"><a class="result__a" href="https://example.com/rust">重复</a><a class="result__snippet">dup</a></div>
-        <div class="result"><a class="result__a" href="https://example.com/p2b">P2B</a><a class="result__snippet">p2b snippet</a></div>
+        <div class="result"><a class="result__a" href="https://example.io/p2b">P2B</a><a class="result__snippet">p2b snippet</a></div>
         </body></html>"#
     .to_string()
 }

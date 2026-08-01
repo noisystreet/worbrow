@@ -21,6 +21,9 @@ pub const LOW_YIELD_THRESHOLD: usize = 3;
 /// 结果元素等待预算上限：页面加载已消耗大部分 timeout 时，剩余时间不足以等待选择器
 /// （design.md §6.2 二级超时）。
 pub const WAIT_BUDGET: Duration = Duration::from_secs(10);
+/// 同域名去重上限（P2，roadmap-result-quality.md）：未启用 `site:` 过滤时，同一域名
+/// 最多保留该条数（防单一来源刷屏）；`site:` 过滤时用户意图为同域，不限制。
+pub const DOMAIN_LIMIT: usize = 2;
 
 /// 内容型（`ResultKind::Web`）结果数：质量降级信号核心（roadmap-result-quality.md）。
 /// 词典/翻译等污染结果不计入——高产低质（如 Bing 对 `best`/`learn` 返回全词典释义）
@@ -486,10 +489,13 @@ async fn handle_engine_result(
 ) -> Result<Option<(&'static str, String, Vec<SearchResult>, bool, usize, bool)>, Error> {
     match result {
         Ok((html, results, captcha, pages)) => {
-            // 满意：内容型（web）结果集满请求量或非低产（≥ 阈值）；词典/翻译污染
-            // 不计入（roadmap-result-quality.md：高产低质自动尝试下一引擎）
+            // 满意：内容型（web）结果集满请求量或非低产（≥ 阈值），且 web 占比 ≥ 50%
+            //（P2 同质化检测，roadmap-result-quality.md：词典/翻译污染不计入、
+            // 多义混入致 web 占比过低同样降级）
             let content = content_count(&results);
-            let satisfied = content >= query.max_results || content >= LOW_YIELD_THRESHOLD;
+            let web_ratio_ok = content * 2 >= results.len();
+            let satisfied =
+                web_ratio_ok && (content >= query.max_results || content >= LOW_YIELD_THRESHOLD);
             if satisfied {
                 tracing::info!(engine = provider.name(), count = results.len(), "采用引擎");
                 let low_yield = content < LOW_YIELD_THRESHOLD;
@@ -510,7 +516,7 @@ async fn handle_engine_result(
             if better {
                 *candidate = Some((provider.name(), results, captcha, pages, html));
             }
-            tracing::warn!(engine = provider.name(), "低产，保留候选继续尝试");
+            tracing::warn!(engine = provider.name(), "低产/低质，保留候选继续尝试");
             Ok(None)
         }
         Err(Error::Captcha(e)) => {
@@ -545,6 +551,9 @@ async fn search_one(
 ) -> Result<(String, Vec<SearchResult>, bool, usize), Error> {
     let wait_budget = timeout_dur.min(WAIT_BUDGET);
     let mut seen = std::collections::HashSet::new();
+    // 同域名去重计数（P2）：未启用 site: 过滤时，同一域名最多保留 DOMAIN_LIMIT 条
+    let mut domain_count: std::collections::HashMap<String, usize> =
+        std::collections::HashMap::new();
     let mut all = Vec::new();
     let mut captcha = false;
     let mut fetched_pages = 0usize;
@@ -556,11 +565,19 @@ async fn search_one(
             fetch_page(provider, query, driver, page, wait_budget).await?;
         captcha |= page_captcha;
         last_html = html;
-        // 抽取并去重合并（按 URL）
+        // 抽取并去重合并：先按 URL，再按域名截断（防单一来源刷屏）
         for r in results {
-            if seen.insert(r.url.clone()) {
-                all.push(r);
+            if !seen.insert(r.url.clone()) {
+                continue;
             }
+            if query.site.is_none() && !r.domain.is_empty() {
+                let n = domain_count.entry(r.domain.clone()).or_insert(0);
+                if *n >= DOMAIN_LIMIT {
+                    continue; // 该域名已达上限，丢弃（rank 靠前已保留）
+                }
+                *n += 1;
+            }
+            all.push(r);
         }
         // 已集满 max_results 可提前停止翻页
         if all.len() >= query.max_results {
@@ -953,5 +970,153 @@ mod tests {
         assert_eq!(outcome.meta.engine, "bing");
         assert_eq!(outcome.meta.engine_tried, vec!["bing"], "不应降级");
         assert!(!outcome.meta.low_yield, "3 条内容型 ≥ 阈值，不应低产");
+    }
+
+    /// P2 同质化检测（roadmap-result-quality.md）：内容型数量达标（3 ≥ 阈值）但
+    /// web 占比 < 50%（多义混入 7 条词典/翻译）→ 仍视为低质，自动降级下一引擎。
+    #[tokio::test]
+    async fn homogeneous_pollution_triggers_fallback() {
+        /// Bing 风格页面：3 条不同域内容页 + 7 条不同域词典/翻译页（占比 30%）。
+        const MIXED_POLLUTION_HTML: &str = r#"<html><body><ol id="b_results">
+          <li class="b_algo"><h2><a href="https://example.com/a">内容一</a></h2><div class="b_caption"><p>摘要</p></div></li>
+          <li class="b_algo"><h2><a href="https://example.org/b">内容二</a></h2><div class="b_caption"><p>摘要</p></div></li>
+          <li class="b_algo"><h2><a href="https://example.net/c">内容三</a></h2><div class="b_caption"><p>摘要</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.iciba.com/word?w=best">词典一</a></h2><div class="b_caption"><p>词典</p></div></li>
+          <li class="b_algo"><h2><a href="https://dictionary.cambridge.org/dictionary/english/best">词典二</a></h2><div class="b_caption"><p>词典</p></div></li>
+          <li class="b_algo"><h2><a href="https://dict.eudic.net/dicts/en/best">词典三</a></h2><div class="b_caption"><p>词典</p></div></li>
+          <li class="b_algo"><h2><a href="https://fanyi.baidu.com/#en/zh/best">词典四</a></h2><div class="b_caption"><p>词典</p></div></li>
+          <li class="b_algo"><h2><a href="https://fanyi.so/dict/?q=best">词典五</a></h2><div class="b_caption"><p>词典</p></div></li>
+          <li class="b_algo"><h2><a href="https://translate.yandex.com/">词典六</a></h2><div class="b_caption"><p>词典</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.ichacha.net/dict?w=best">词典七</a></h2><div class="b_caption"><p>词典</p></div></li>
+        </ol></body></html>"#;
+
+        /// 按导航 URL 返回不同页面：bing → 混合污染；ddg → 正常内容 fixture。
+        struct MixedDriver {
+            current: Option<String>,
+        }
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for MixedDriver {
+            async fn navigate(&mut self, url: url::Url) -> Result<(), Error> {
+                self.current = Some(url.to_string());
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                let url = self.current.as_deref().unwrap_or_default();
+                if url.contains("bing.com") {
+                    Ok(MIXED_POLLUTION_HTML.to_string())
+                } else {
+                    Ok(include_str!("../tests/fixtures/duckduckgo.html").to_string())
+                }
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = MixedDriver { current: None };
+        let cfg = Config::new("best rust", "bing,duckduckgo", BrowserKind::Fake)
+            .with_timeout(Duration::from_secs(10));
+        let outcome = run_with(&mut driver, cfg).await.expect("占比低质应降级");
+        // 3 条内容型数量达标但占比 30% < 50% → 降级 ddg
+        assert_eq!(outcome.meta.engine, "duckduckgo");
+        assert_eq!(outcome.meta.engine_tried, vec!["bing", "duckduckgo"]);
+    }
+
+    /// P2 同域名去重：同一域名最多保留 DOMAIN_LIMIT 条（rank 靠前优先），防刷屏。
+    #[tokio::test]
+    async fn domain_flooding_is_capped() {
+        /// Bing 风格页面：4 条 example.com + 1 条 example.org。
+        const FLOOD_HTML: &str = r#"<html><body><ol id="b_results">
+          <li class="b_algo"><h2><a href="https://example.com/1">同域一</a></h2><div class="b_caption"><p>摘要</p></div></li>
+          <li class="b_algo"><h2><a href="https://example.com/2">同域二</a></h2><div class="b_caption"><p>摘要</p></div></li>
+          <li class="b_algo"><h2><a href="https://example.com/3">同域三</a></h2><div class="b_caption"><p>摘要</p></div></li>
+          <li class="b_algo"><h2><a href="https://example.com/4">同域四</a></h2><div class="b_caption"><p>摘要</p></div></li>
+          <li class="b_algo"><h2><a href="https://example.org/a">异域</a></h2><div class="b_caption"><p>摘要</p></div></li>
+        </ol></body></html>"#;
+
+        struct FloodDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for FloodDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(FLOOD_HTML.to_string())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = FloodDriver;
+        let cfg = Config::new("rust", "bing", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut driver, cfg).await.expect("应成功");
+        // example.com 4 条被截断到 2 条；example.org 保留 → 共 3 条
+        assert_eq!(outcome.results.len(), 3, "同域名去重后保留 2+1");
+        assert_eq!(
+            outcome
+                .results
+                .iter()
+                .filter(|r| r.domain == "example.com")
+                .count(),
+            DOMAIN_LIMIT,
+            "同域名最多保留 DOMAIN_LIMIT 条"
+        );
+        // rank 连续重排
+        assert_eq!(outcome.results[0].rank, 1);
+        assert_eq!(outcome.results[2].rank, 3);
+    }
+
+    /// 回归：`site:` 过滤时用户意图为同域 → 同域名去重禁用，结果全保留。
+    #[tokio::test]
+    async fn site_filter_disables_domain_dedup() {
+        struct FloodDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for FloodDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                // 与 domain_flooding_is_capped 相同的同域刷屏页面
+                Ok(r#"<html><body><ol id="b_results">
+                  <li class="b_algo"><h2><a href="https://example.com/1">一</a></h2><div class="b_caption"><p>摘要</p></div></li>
+                  <li class="b_algo"><h2><a href="https://example.com/2">二</a></h2><div class="b_caption"><p>摘要</p></div></li>
+                  <li class="b_algo"><h2><a href="https://example.com/3">三</a></h2><div class="b_caption"><p>摘要</p></div></li>
+                  <li class="b_algo"><h2><a href="https://example.com/4">四</a></h2><div class="b_caption"><p>摘要</p></div></li>
+                </ol></body></html>"#
+                    .to_string())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = FloodDriver;
+        let cfg = Config::new("rust", "bing", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(5))
+            .with_site(Some("example.com".into()));
+        let outcome = run_with(&mut driver, cfg).await.expect("应成功");
+        assert_eq!(outcome.results.len(), 4, "site: 过滤时同域名不截断");
     }
 }
