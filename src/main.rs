@@ -3,12 +3,16 @@
 use std::process::ExitCode;
 
 use clap::Parser;
+use worbrow::BrowserKind;
 use worbrow::app::{self, Config};
-use worbrow::cli::{Cli, Command, LogLevelArg};
-use worbrow::drivers::BrowserKind;
 use worbrow::engines;
 use worbrow::error::Error;
 use worbrow::output;
+
+use cli::{Cli, Command, LogLevelArg};
+
+/// CLI 参数定义（bin 私有；lib 不暴露 clap 细节，公开面为库 API，见 ADR-006）。
+mod cli;
 
 fn main() -> ExitCode {
     // panic 兜底：任何 panic 转 exit 1（design.md §6.1）

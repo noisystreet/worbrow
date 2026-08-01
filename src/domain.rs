@@ -1,5 +1,7 @@
 //! 领域模型：纯数据，不依赖框架/IO 细节（design.md §6.3）。
 
+use std::fmt;
+
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
@@ -46,4 +48,57 @@ pub struct SearchMeta {
     pub low_yield: bool,
     pub captcha: bool,
     pub engine_error: Option<EngineError>,
+}
+
+/// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；零依赖纯枚举）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum BrowserKind {
+    /// Chrome / Edge / Chromium（CDP）
+    Chrome,
+    /// Firefox（Marionette）
+    Firefox,
+    /// 测试用假驱动（CLI 不暴露）
+    Fake,
+}
+
+impl fmt::Display for BrowserKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            BrowserKind::Chrome => write!(f, "chrome"),
+            BrowserKind::Firefox => write!(f, "firefox"),
+            BrowserKind::Fake => write!(f, "fake"),
+        }
+    }
+}
+
+impl BrowserKind {
+    /// 从 CLI/MCP 参数值解析（大小写不敏感；`chrome`/`edge`/`chromium` 统一为 Chrome）。
+    /// 单一映射源：`cli::BrowserArg` 与 `mcp::parse_browser` 均委托此实现。
+    pub fn from_arg(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "chrome" | "edge" | "chromium" => Some(Self::Chrome),
+            "firefox" => Some(Self::Firefox),
+            "fake" => Some(Self::Fake),
+            _ => None,
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_kind_from_arg_normalizes_and_aliases() {
+        assert_eq!(BrowserKind::from_arg("chrome"), Some(BrowserKind::Chrome));
+        assert_eq!(BrowserKind::from_arg("Edge"), Some(BrowserKind::Chrome));
+        assert_eq!(
+            BrowserKind::from_arg(" chromium "),
+            Some(BrowserKind::Chrome)
+        );
+        assert_eq!(BrowserKind::from_arg("firefox"), Some(BrowserKind::Firefox));
+        assert_eq!(BrowserKind::from_arg("fake"), Some(BrowserKind::Fake));
+        assert_eq!(BrowserKind::from_arg("lynx"), None);
+        assert_eq!(BrowserKind::from_arg(""), None);
+    }
 }

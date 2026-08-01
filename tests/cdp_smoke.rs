@@ -6,7 +6,8 @@ use std::process::Command;
 use std::time::Duration;
 
 use url::Url;
-use worbrow::drivers::cdp::CdpDriver;
+use worbrow::BrowserKind;
+use worbrow::drivers;
 use worbrow::error::Error;
 
 /// 统计本工具启动的 Chrome（按临时 user-data-dir 路径特征隔离）。
@@ -29,7 +30,7 @@ fn chrome_count() -> usize {
 async fn spawn_then_drop_kills_chrome() {
     let before = chrome_count();
     {
-        let _driver = CdpDriver::spawn()
+        let _driver = drivers::resolve(BrowserKind::Chrome)
             .await
             .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -51,7 +52,7 @@ async fn spawn_then_drop_kills_chrome() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn end_to_end_on_data_url() {
-    let mut driver = CdpDriver::spawn()
+    let mut driver = drivers::resolve(BrowserKind::Chrome)
         .await
         .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");
 
@@ -88,7 +89,7 @@ async fn end_to_end_on_data_url() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn wait_for_missing_selector_times_out() {
-    let mut driver = CdpDriver::spawn()
+    let mut driver = drivers::resolve(BrowserKind::Chrome)
         .await
         .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");
 
@@ -108,7 +109,10 @@ async fn wait_for_missing_selector_times_out() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn concurrent_spawns_use_distinct_ports() {
-    let (a, b) = tokio::join!(CdpDriver::spawn(), CdpDriver::spawn());
+    let (a, b) = tokio::join!(
+        drivers::resolve(BrowserKind::Chrome),
+        drivers::resolve(BrowserKind::Chrome)
+    );
     assert!(a.is_ok(), "实例 A 应成功（端口冲突或启动失败）");
     assert!(b.is_ok(), "实例 B 应成功（端口冲突或启动失败）");
 }
@@ -117,7 +121,7 @@ async fn concurrent_spawns_use_distinct_ports() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn navigate_invalid_url_errors_instead_of_hanging() {
-    let mut driver = CdpDriver::spawn()
+    let mut driver = drivers::resolve(BrowserKind::Chrome)
         .await
         .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");
     let result = tokio::time::timeout(

@@ -3,11 +3,11 @@
 //! CI 无需真实浏览器（fake 驱动 + fixture）。
 
 use worbrow::app::{self, Config};
-use worbrow::drivers::BrowserKind;
-use worbrow::error::Error;
+use worbrow::error::{EngineFailure, Error};
+use worbrow::ports::SearchProvider;
 use worbrow::{
-    DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS, EngineError, SearchMeta,
-    SearchResult,
+    BrowserKind, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS, EngineError,
+    SearchMeta, SearchQuery, SearchResult,
 };
 
 /// 编译期可命名性（P0 补漏项）：`EngineError`/`SearchResult`/`SearchMeta`
@@ -17,12 +17,52 @@ fn public_types_are_namable() {
     let _: Option<EngineError> = None;
     let _: Option<SearchResult> = None;
     let _: Option<SearchMeta> = None;
+    let _: Option<BrowserKind> = None;
+}
+
+/// 自定义引擎：验证 `Config::with_provider` 扩展点（P1，外部无需复制 run 编排）。
+/// `result_url` 不真正被访问（fake 驱动），parse 返回固定结果即可。
+struct DummyEngine;
+
+impl SearchProvider for DummyEngine {
+    fn name(&self) -> &'static str {
+        "dummy"
+    }
+    fn result_url(&self, _q: &SearchQuery) -> url::Url {
+        url::Url::parse("data:text/html,<p>dummy</p>").expect("data URL 合法")
+    }
+    fn result_selector(&self) -> &'static str {
+        "p"
+    }
+    fn parse(&self, _html: &str) -> Result<Vec<SearchResult>, EngineFailure> {
+        Ok(vec![SearchResult {
+            rank: 1,
+            title: "dummy title".into(),
+            url: "https://example.com/".into(),
+            snippet: "dummy snippet".into(),
+        }])
+    }
+    fn captcha_heuristics(&self) -> &[&'static str] {
+        &[]
+    }
+}
+
+#[tokio::test]
+async fn custom_provider_is_injected_over_registry() {
+    // engine 名未注册（"not-registered"），注入的 provider 优先于注册表
+    let config = Config::new("rust", "not-registered", BrowserKind::Fake)
+        .with_provider(Box::new(DummyEngine));
+    let outcome = worbrow::run(config).await.expect("自定义引擎应可用");
+    assert_eq!(outcome.meta.engine, "dummy");
+    assert_eq!(outcome.results.len(), 1);
+    assert_eq!(outcome.results[0].rank, 1);
 }
 
 #[test]
-fn run_sync_works_from_external_crate() {
+fn search_works_from_external_crate() {
     let config = Config::new("rust", DEFAULT_ENGINE, BrowserKind::Fake);
-    let outcome = app::run_sync(config).expect("fake 驱动 + bing fixture 应成功");
+    // 顶层 `search` 便捷入口（等价 run_sync）
+    let outcome = worbrow::search(config).expect("fake 驱动 + bing fixture 应成功");
     assert!(!outcome.results.is_empty());
     assert_eq!(outcome.meta.engine, DEFAULT_ENGINE);
     assert_eq!(outcome.meta.result_count, outcome.results.len());
@@ -56,4 +96,7 @@ fn error_type_is_usable_externally() {
     assert_eq!(err.code_str(), "parse");
     assert_eq!(err.exit_code(), 4);
     assert_eq!(err.detail(), Some("no_results".into()));
+    // source chain：底层 EngineFailure 可下钻（P1 复核项）
+    let source = std::error::Error::source(&err).expect("Engine 变体应有 source");
+    assert!(source.to_string().contains("no_results"));
 }

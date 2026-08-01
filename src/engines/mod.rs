@@ -3,9 +3,12 @@
 //! 每个引擎两个关注点：URL 直访模板 + 解析选择器。新增引擎 = 新增一个文件 + 在
 //! `resolve` 注册一行。引擎 HTML 改版是常态：解析失败经 `EngineFailure` 上报，
 //! 不破坏输出 schema。
+//!
+//! 公开面仅 `resolve`/`AVAILABLE`；具体引擎实现（bing/duckduckgo）为内部细节，
+//! 不属稳定 API（ADR-006）。
 
-pub mod bing;
-pub mod duckduckgo;
+mod bing;
+mod duckduckgo;
 
 use crate::error::Error;
 use crate::ports::SearchProvider;
