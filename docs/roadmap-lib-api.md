@@ -70,18 +70,18 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 | 引擎扩展点 | `Config::with_provider(Box<dyn SearchProvider>)`（对齐 `with_driver` 风格），`app::run` 注入优先、注册表兜底 |
 | `Error` source chain | 复核确认（thiserror `#[from]` 已自动 source）；rustdoc 说明 |
 
-### P2：库消费体验完善
+### P2：库消费体验完善 —— ✅ 已完成（2026-08）
 
 | 项 | 内容 |
 |---|---|
-| 类型化契约包 | `output::SuccessPacket`/`FailurePacket`（`Serialize`，含 `schema_version`），CLI 仅渲染，库消费者直接 `serde_json` |
-| `Config` 字段私有化 | 字段 `pub` → 私有，builder 成为唯一入口（消除绕过 `with_max_results` clamp 等不变量；tests 已全部改用 builder，0.x 破坏性变更记 CHANGELOG） |
-| 入口收敛 | 同步入口统一为顶层 `search`，`run_sync` **已移除**（等价双名消除）；async 场景用 `run` |
-| trait 顶层 re-export | `worbrow::{SearchProvider, BrowserDriver}` 进顶层，自定义引擎/驱动一行 use 完成 |
-| rustdoc 示例 | `lib.rs` 顶层 + 核心类型 quickstart doc-test；`examples/`（根目录）加可运行示例 |
-| feature 文档化 | `mcp` 默认启用仅服务 CLI；文档明示库消费 `default-features = false`；`clap`/`tempfile` 等 CLI 专属依赖逐步 feature 化 |
-| 文档互链 | `EngineError`（meta 上报）与 `EngineFailure`（CLI 错误）rustdoc 互链说明语义差异 |
-| 版本语义 | README/CONTRIBUTING 明确 0.x 公开面冻结与变更流程 |
+| 类型化契约包 | ✅ `output::SuccessPayload`/`ErrorPayload`（`Serialize`，含 `schema_version`）顶层 re-export，消费者直接 `serde_json` |
+| `Config` 字段私有化 | ✅ 字段私有，builder 唯一入口（`with_max_results` clamp 等不变量不可绕过；integration.rs 改用 builder） |
+| 入口收敛 | ✅ `run_sync` 已移除，同步入口统一为顶层 `search`；async 用 `run` |
+| trait 顶层 re-export | ✅ `worbrow::{SearchProvider, BrowserDriver}` 进顶层 |
+| rustdoc 示例 | ✅ lib.rs quickstart doc-test（fake 可执行）+ `examples/basic_search.rs`、`examples/custom_engine.rs`（根目录） |
+| feature 文档化 | ✅ README"作为库使用"：`default-features = false` 去 MCP 依赖说明 |
+| 文档互链 | ✅ `EngineError`（meta 上报）与 `EngineFailure`（CLI 错误）rustdoc 互链 |
+| 版本语义 | ✅ CONTRIBUTING 明确 0.x 公开面冻结：破坏性变更 bump minor + CHANGELOG，新公开项须经顶层 re-export 评估 |
 
 ## 4. 目标 API 形态（P1 完成后）
 

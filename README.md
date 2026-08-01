@@ -66,6 +66,32 @@ cargo build --release
 }
 ```
 
+## 作为库使用
+
+worbrow 的库公开面是**类型级顶层 API**（ADR-006）：消费者一行 `use worbrow::...`
+完成拼装，无需感知内部模块树。
+
+```rust
+use worbrow::{BrowserKind, Config, search};
+
+fn main() -> Result<(), worbrow::Error> {
+    let outcome = search(Config::new("rust async", "bing", BrowserKind::Firefox)
+        .with_max_results(5))?;
+    for r in &outcome.results {
+        println!("{} - {}", r.rank, r.title);
+    }
+    Ok(())
+}
+```
+
+- **依赖面**：库消费可用 `default-features = false` 去掉 MCP 依赖（`rmcp`）
+  ——`mcp` feature 默认启用仅为服务 CLI 二进制
+- **扩展**：自定义引擎实现 [`SearchProvider`](https://docs.rs/worbrow/latest/worbrow/trait.SearchProvider.html)
+  并经 `Config::with_provider` 注入；自定义浏览器后端实现 `BrowserDriver` 并经
+  `Config::with_driver` 注入
+- **契约序列化**：`SuccessPayload`/`ErrorPayload`（含 `schema_version`）可直接
+  `serde_json::to_string`；可运行示例见 `examples/`（`cargo run --example basic_search`）
+
 ## 质量命令
 
 未安装 `just`，统一入口为 `make`：
