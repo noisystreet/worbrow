@@ -414,47 +414,12 @@ async fn search_one(
 
     for page in 1..=query.pages {
         fetched_pages += 1;
-        let step = Instant::now();
-        let url = if page == 1 {
-            provider.result_url(query)
-        } else {
-            provider.page_url(query, page)
-        };
-        driver.navigate(url).await?;
-        tracing::info!(
-            elapsed_ms = step.elapsed().as_millis() as u64,
-            page,
-            "navigate 完成"
-        );
-
-        // 6. 等待结果容器出现：二级超时（页面加载预算内截断，design.md §6.2）
-        let step = Instant::now();
-        driver
-            .wait_for(provider.result_selector(), wait_budget)
-            .await?;
-        tracing::info!(
-            elapsed_ms = step.elapsed().as_millis() as u64,
-            page,
-            "wait_for 完成"
-        );
-
-        let step = Instant::now();
-        last_html = driver.html().await?;
-        tracing::info!(
-            elapsed_ms = step.elapsed().as_millis() as u64,
-            page,
-            "html 完成"
-        );
-
-        // 7. 验证码启发式检测（不中止）
-        let lower = last_html.to_lowercase();
-        captcha |= provider
-            .captcha_heuristics()
-            .iter()
-            .any(|h| lower.contains(h));
-
-        // 8. 抽取并去重合并（按 URL）
-        for r in provider.parse(&last_html)? {
+        let (html, page_captcha, results) =
+            fetch_page(provider, query, driver, page, wait_budget).await?;
+        captcha |= page_captcha;
+        last_html = html;
+        // 抽取并去重合并（按 URL）
+        for r in results {
             if seen.insert(r.url.clone()) {
                 all.push(r);
             }
@@ -478,7 +443,61 @@ async fn search_one(
     Ok((last_html, all, captcha, fetched_pages))
 }
 
+/// 抓取单页：navigate → 等待结果容器 → html → 验证码检测 → 解析。
+/// 返回 `(html, 是否检测到验证码, 本页结果)`。
+async fn fetch_page(
+    provider: &dyn SearchProvider,
+    query: &SearchQuery,
+    driver: &mut dyn BrowserDriver,
+    page: usize,
+    wait_budget: Duration,
+) -> Result<(String, bool, Vec<SearchResult>), Error> {
+    let url = if page == 1 {
+        provider.result_url(query)
+    } else {
+        provider.page_url(query, page)
+    };
+    let step = Instant::now();
+    driver.navigate(url).await?;
+    tracing::info!(
+        elapsed_ms = step.elapsed().as_millis() as u64,
+        page,
+        "navigate 完成"
+    );
+
+    // 等待结果容器出现：二级超时（页面加载预算内截断，design.md §6.2）
+    let step = Instant::now();
+    driver
+        .wait_for(provider.result_selector(), wait_budget)
+        .await?;
+    tracing::info!(
+        elapsed_ms = step.elapsed().as_millis() as u64,
+        page,
+        "wait_for 完成"
+    );
+
+    let step = Instant::now();
+    let html = driver.html().await?;
+    tracing::info!(
+        elapsed_ms = step.elapsed().as_millis() as u64,
+        page,
+        "html 完成"
+    );
+
+    // 验证码启发式检测（不中止）
+    let lower = html.to_lowercase();
+    let captcha = provider
+        .captcha_heuristics()
+        .iter()
+        .any(|h| lower.contains(h));
+
+    let results = provider.parse(&html)?;
+    Ok((html, captcha, results))
+}
+
 #[cfg(test)]
+// 测试断言序列（assert_eq 宏展开）非控制流复杂度，豁免门禁；生产代码仍严格 ≤10
+#[allow(clippy::cognitive_complexity)]
 mod tests {
     use super::*;
 

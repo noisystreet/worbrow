@@ -113,6 +113,8 @@ fn selector(s: &str) -> Selector {
 }
 
 #[cfg(test)]
+// 测试断言序列（assert_eq 宏展开）非控制流复杂度，豁免门禁；生产代码仍严格 ≤10
+#[allow(clippy::cognitive_complexity)]
 mod tests {
     use super::*;
 

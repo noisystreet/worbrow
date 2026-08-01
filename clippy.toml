@@ -1,0 +1,5 @@
+# clippy 配置（AGENTS.md 质量门禁的一部分）
+# 复杂度阈值：函数认知复杂度不得超过 10（超限即 error，由
+# `-W clippy::cognitive_complexity` 门禁）。clippy 自 1.66 起以认知复杂度
+# （cognitive complexity，对嵌套/短路加权）取代经典圈复杂度 CCN。
+cognitive-complexity-threshold = 10
