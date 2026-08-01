@@ -65,8 +65,11 @@ impl SearchProvider for DuckDuckGo {
                 .map(|e| clean_text(&e.text().collect::<String>()))
                 .unwrap_or_default();
 
-            let url = normalize_url(&raw_href);
+            let (url, url_resolved) = normalize_url(&raw_href);
             let (domain, https) = crate::extract::url_origin(&url);
+            // DDG 广告位容器 class 形如 `result--ad`；普通结果无此标记
+            let is_ad = node.value().classes().any(|c| c.contains("--ad"));
+            let published_at = crate::extract::extract_date(&snippet_text);
             results.push(SearchResult {
                 rank: i + 1,
                 title: title_text,
@@ -74,6 +77,9 @@ impl SearchProvider for DuckDuckGo {
                 snippet: snippet_text,
                 domain,
                 https,
+                published_at,
+                is_ad,
+                url_resolved,
             });
         }
 
@@ -141,6 +147,10 @@ mod tests {
         assert_eq!(results[0].domain, "example.com");
         assert!(results[0].https);
         assert_eq!(results[0].snippet, "这是摘要一");
+        // fixture 摘要无日期、无广告；uddg 已展开 → url_resolved=true
+        assert_eq!(results[0].published_at, None);
+        assert!(!results[0].is_ad);
+        assert!(results[0].url_resolved, "uddg 展开应标记已解跳转");
         // uddg 跳转展开
         assert_eq!(results[2].url, "https://example.org/async");
     }
@@ -151,6 +161,18 @@ mod tests {
             .parse("<html><body>空</body></html>")
             .unwrap_err();
         assert_eq!(err.code, "no_results");
+    }
+
+    #[test]
+    fn parse_marks_ad_results() {
+        let html = r#"<html><body>
+            <div class="result result--ad"><a class="result__a" href="https://ads.example.com/x">广告</a><a class="result__snippet">sponsored</a></div>
+            <div class="result"><a class="result__a" href="https://example.com/normal">正常</a><a class="result__snippet">normal</a></div>
+            </body></html>"#;
+        let results = DuckDuckGo.parse(html).expect("应可解析");
+        assert_eq!(results.len(), 2);
+        assert!(results[0].is_ad, "result--ad 应标记为广告");
+        assert!(!results[1].is_ad, "普通结果不应标记为广告");
     }
 
     #[test]

@@ -30,6 +30,9 @@ impl SearchProvider for StaticEngine {
             snippet: "示例摘要".into(),
             domain: "example.com".into(),
             https: true,
+            published_at: None,
+            is_ad: false,
+            url_resolved: false,
         }])
     }
 

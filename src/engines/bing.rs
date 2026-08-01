@@ -63,7 +63,7 @@ impl SearchProvider for Bing {
                 continue; // 缺少标题的结果项跳过（部分成功）
             };
             let title_text = clean_text(&link.text().collect::<String>());
-            let url = link
+            let (url, url_resolved) = link
                 .value()
                 .attr("href")
                 .map(normalize_url)
@@ -79,6 +79,7 @@ impl SearchProvider for Bing {
             }
 
             let (domain, https) = crate::extract::url_origin(&url);
+            let published_at = crate::extract::extract_date(&snippet_text);
             results.push(SearchResult {
                 rank: i + 1,
                 title: title_text,
@@ -86,6 +87,9 @@ impl SearchProvider for Bing {
                 snippet: snippet_text,
                 domain,
                 https,
+                published_at,
+                is_ad: false, // b_algo 选择器不含广告容器（li.b_ad）
+                url_resolved,
             });
         }
 
@@ -159,6 +163,7 @@ mod tests {
         assert_eq!(results[0].url, "https://lopezcastromil.com/");
         assert_eq!(results[0].domain, "lopezcastromil.com");
         assert!(results[0].https);
+        assert!(results[0].url_resolved, "ck/a 解码应标记已解跳转");
     }
 
     #[test]
@@ -174,6 +179,12 @@ mod tests {
         assert_eq!(results[0].domain, "www.runoob.com");
         assert!(results[0].https);
         assert!(results[0].snippet.contains("异步编程"));
+        // 发布日期：fixture 仅第 2/3 条摘要含日期（Bing 中文格式 `YYYY年M月D日 ·`）
+        assert_eq!(results[0].published_at, None, "第一条摘要无日期");
+        assert_eq!(results[1].published_at.as_deref(), Some("2025年5月25日"));
+        assert_eq!(results[2].published_at.as_deref(), Some("2025年3月23日"));
+        assert!(!results[0].is_ad, "b_algo 不含广告");
+        assert!(!results[0].url_resolved, "fixture 为直接 URL，无需解跳转");
         // 第二条：URL 来自 href 直接提取，无跳转参数
         assert_eq!(
             results[1].url,
