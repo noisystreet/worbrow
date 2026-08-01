@@ -19,7 +19,7 @@ cargo run -- "rust 异步运行时" --json   # 默认引擎 bing、默认超时 
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 ```
 
-当前后端状态：`firefox`（Marionette，自研协议）已实现；`chrome`（CDP）为 V1 待实现桩；
+当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
 `fake` 供测试/冒烟。协议实现见 [ADR-002](docs/adr/0002-browser-driver-protocols.md)。
 
 ### 安装（Debian/Ubuntu）
