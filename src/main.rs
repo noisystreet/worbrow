@@ -46,16 +46,11 @@ fn run_cli() -> ExitCode {
         );
     };
 
-    let config = Config {
-        query,
-        engine: cli.engine.name().to_string(),
-        browser: cli.browser.to_kind(),
-        max_results: cli.max_results,
-        timeout: std::time::Duration::from_secs(cli.timeout),
-        screenshot: cli.screenshot,
-        dump_html: cli.dump_html,
-        driver: None,
-    };
+    let config = Config::new(query, cli.engine.name(), cli.browser.to_kind())
+        .with_max_results(cli.max_results)
+        .with_timeout(std::time::Duration::from_secs(cli.timeout))
+        .with_screenshot(cli.screenshot)
+        .with_dump_html(cli.dump_html);
 
     // 同步入口：内部管理 tokio runtime（CLI 保持薄封装）
     finish(&app::run_sync(config), json)

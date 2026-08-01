@@ -33,6 +33,48 @@ pub struct Config {
     pub driver: Option<Box<dyn BrowserDriver>>,
 }
 
+impl Config {
+    /// 典型搜索配置：默认 `max_results`/`timeout` 取 `domain::DEFAULT_*`，无调试产物。
+    pub fn new(query: impl Into<String>, engine: impl Into<String>, browser: BrowserKind) -> Self {
+        Self {
+            query: query.into(),
+            engine: engine.into(),
+            browser,
+            max_results: crate::domain::DEFAULT_MAX_RESULTS,
+            timeout: Duration::from_secs(crate::domain::DEFAULT_TIMEOUT_SECS),
+            screenshot: None,
+            dump_html: None,
+            driver: None,
+        }
+    }
+
+    pub fn with_max_results(mut self, max_results: usize) -> Self {
+        self.max_results = max_results.max(1);
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    pub fn with_screenshot(mut self, path: Option<PathBuf>) -> Self {
+        self.screenshot = path;
+        self
+    }
+
+    pub fn with_dump_html(mut self, path: Option<PathBuf>) -> Self {
+        self.dump_html = path;
+        self
+    }
+
+    /// 测试注入驱动（生产不要调用；优先级高于 `browser`）。
+    pub fn with_driver(mut self, driver: Box<dyn BrowserDriver>) -> Self {
+        self.driver = Some(driver);
+        self
+    }
+}
+
 #[derive(Debug)]
 pub struct Outcome {
     pub query: String,
@@ -199,4 +241,31 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
         results,
         meta,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn config_new_applies_defaults() {
+        let c = Config::new("q", "bing", BrowserKind::Fake);
+        assert_eq!(c.max_results, crate::domain::DEFAULT_MAX_RESULTS);
+        assert_eq!(
+            c.timeout,
+            Duration::from_secs(crate::domain::DEFAULT_TIMEOUT_SECS)
+        );
+        assert!(c.screenshot.is_none());
+        assert!(c.dump_html.is_none());
+        assert!(c.driver.is_none());
+    }
+
+    #[test]
+    fn config_builder_overrides_and_clamps() {
+        let c = Config::new("q", "bing", BrowserKind::Fake)
+            .with_max_results(0)
+            .with_timeout(Duration::from_secs(5));
+        assert_eq!(c.max_results, 1, "max_results 至少为 1");
+        assert_eq!(c.timeout, Duration::from_secs(5));
+    }
 }

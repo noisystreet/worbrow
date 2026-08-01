@@ -56,6 +56,14 @@ impl Error {
             Error::Internal(_) => "internal",
         }
     }
+
+    /// 失败包 `detail` 字段：机器可处理的附加信息（如引擎错误码）；无则为 `None`。
+    pub fn detail(&self) -> Option<String> {
+        match self {
+            Error::Engine(f) => Some(f.code.clone()),
+            _ => None,
+        }
+    }
 }
 
 /// 引擎解析/页面结构异常（适配器侧构造）。
