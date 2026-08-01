@@ -2,7 +2,7 @@
 //! 模拟第三方消费者，作为公开面回归门禁（docs/roadmap-lib-api.md P0）。
 //! CI 无需真实浏览器（fake 驱动 + fixture）。
 
-use worbrow::app::{self, Config};
+use worbrow::app::Config;
 use worbrow::error::{EngineFailure, Error};
 use worbrow::ports::SearchProvider;
 use worbrow::{
@@ -61,7 +61,7 @@ async fn custom_provider_is_injected_over_registry() {
 #[test]
 fn search_works_from_external_crate() {
     let config = Config::new("rust", DEFAULT_ENGINE, BrowserKind::Fake);
-    // 顶层 `search` 便捷入口（等价 run_sync）
+    // 顶层 `search` 同步入口
     let outcome = worbrow::search(config).expect("fake 驱动 + bing fixture 应成功");
     assert!(!outcome.results.is_empty());
     assert_eq!(outcome.meta.engine, DEFAULT_ENGINE);
@@ -81,7 +81,7 @@ fn defaults_are_reachable_from_root() {
 #[test]
 fn output_contract_is_schema_v1() {
     let config = Config::new("rust", DEFAULT_ENGINE, BrowserKind::Fake);
-    let outcome = app::run_sync(config).expect("fake 驱动应成功");
+    let outcome = worbrow::search(config).expect("fake 驱动应成功");
     let body = worbrow::output::success(&outcome.query, &outcome.results, &outcome.meta);
     let v: serde_json::Value = serde_json::from_str(&body).expect("契约 JSON 可解析");
     assert_eq!(v["schema_version"], 1);
