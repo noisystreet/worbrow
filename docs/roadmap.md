@@ -126,6 +126,17 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 验证 | output 单测（compact 仅含 rank/title/url）+ MCP 集成（compact 输出无 snippet、list_engines/doctor 出现在 tools/list 且调用成功） |
 | 风险 | 低 |
 
+### P1：正文抓取与结构化提取（fetch_page / `worbrow fetch`）—— ✅ 已完成（2026-08，[ADR-009](adr/0009-fetch-page.md)，专项规划见 [roadmap-fetch.md](roadmap-fetch.md)）
+
+| 项 | 内容 |
+|---|---|
+| 现状 | agent 只能拿搜索结果列表（title/url/snippet）；"比较/筛选"类任务（找最便宜的 X）缺正文与结构化字段 |
+| 目标 | ① `worbrow fetch <url>` 子命令 + MCP `fetch_page` 工具：复用浏览器会话抓取 agent **显式传入** 的 URL，返回清洗后正文；② `fetch_page(url, extract: [...])` 结构化字段提取（allowlist：title/author/published_at/price/currency/rating/rating_max/reviews_count，JSON-LD → meta → DOM，缺失缺省不编造） |
+| 改动点 | ① [domain.rs](../src/domain.rs)：`DEFAULT_MAX_CHARS`/`ExtractField`/`FetchedPage`；② [extract.rs](../src/extract.rs)：`extract_main_text`/`extract_fields`；③ [app.rs](../src/app.rs)：`fetch`/`run_fetch`/`run_fetch_with`（镜像 run 三入口）+ `wait_load` + URL 校验前置；④ [output.rs](../src/output.rs)：fetch 成功包；⑤ [cli.rs](../src/cli.rs)/[main.rs](../src/main.rs)：`Fetch` 子命令（`--extract`/`--max-chars`/`--no-text`；共享 flag 标 global）；⑥ [mcp.rs](../src/mcp.rs)：`fetch_page` 工具（会话池复用 + 健康判定）；⑦ [lib.rs](../src/lib.rs)：re-export 新类型 |
+| 契约影响 | 新 sibling fetch 成功包（schema v1 同版本）；search 成功/失败包零变化；新工具对既有客户端无感；退出码复用冻结语义 |
+| 验证 | extract 单测（噪音剥离/截断/字段类型）；app 单测（URL 归一化/正文+字段+final_url/text=false）；FakeDriver 集成；MCP/CLI 集成（成功包/非法 URL/非法 extract → isError 或 exit 2） |
+| 风险 | 正文提取质量依赖页面结构（尽力语义明示）；SSRF/内网可达（工具描述 + README 明示，prompt injection 缓解）；合规划界（fetch = 用户显式导航，与 snippet-only 政策分离） |
+
 ### P2：新引擎（baidu）
 
 复用 `SearchProvider` 模板 + fixture（见 [CONTRIBUTING.md](../CONTRIBUTING.md) 常见任务）。前置评估：反爬强度、headless 可达性；失败走 `EngineFailure`（exit 4）。若收益不足可推迟或不做。
@@ -135,11 +146,13 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → 引擎降级 →
 结果质量信号（[roadmap-result-quality.md](roadmap-result-quality.md)）→
 搜索参数补全（[roadmap-search-params.md](roadmap-search-params.md)）→
-网络重试与缓存 → MCP 体验完善 →（P2 baidu 视评估）
+网络重试与缓存 → MCP 体验完善 → 正文抓取与结构化提取
+（[roadmap-fetch.md](roadmap-fetch.md)，ADR-009）→（P2 baidu 视评估）
 
 > 会话复用：已落地（ADR-007，见 §3 P1 章节）。
 > 网络重试与缓存：已落地（ADR-008，见 §3 P1 章节）。
 > MCP 体验完善：已落地（见 §3 P1 章节）。
+> 正文抓取与结构化提取：已落地（ADR-009，见 §3 P1 章节）。
 
 - 每步独立可验证、可回退；完成后同步 `doctor`、README、CHANGELOG
 - 不承诺时间；重要取舍（如 CDP 传输层、会话池默认策略）以 ADR 记录

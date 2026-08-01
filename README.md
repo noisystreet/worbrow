@@ -24,6 +24,10 @@ cargo run -- "rust" --freshness week --safesearch strict                       #
 cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # 站点/文件类型过滤
 cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低质/低产时自动尝试下一个）
 cargo run -- "rust" --retry 2                  # 瞬时网络错误退避重试（指数退避封顶 8s）
+# 正文抓取 + 结构化提取（ADR-009）：agent 显式传入 URL，返回清洗正文与可选字段
+cargo run -- fetch https://example.com/rust --json
+cargo run -- fetch https://example.com --extract price,rating --json    # 字段提取（allowlist）
+cargo run -- fetch https://example.com --no-text --extract price        # 只要字段，省 token
 ```
 
 当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
@@ -48,11 +52,13 @@ cargo build --release
 
 以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露工具：
 - `web_search`（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache/compact）
+- `fetch_page`（url/browser/timeout/max_chars/extract/text/retry：抓取**显式传入**的 URL，
+  返回清洗正文与可选结构化字段）
 - `list_engines`（列出可用引擎）、`doctor`（环境自检：浏览器二进制/版本/引擎注册表）
 
 工具结果复用输出契约（schema v1）。`compact=true` 时 `web_search` 结果仅含
 rank/title/url（省 agent 上下文 token，meta 完整）。
-设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
+设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md) 与 [ADR-009](docs/adr/0009-fetch-page.md)。
 （若不需要 MCP：`cargo build --no-default-features`）
 
 `worbrow mcp --idle-timeout <secs>`：超过该时长无任何请求自动退出（防 agent 崩溃后
@@ -67,6 +73,27 @@ rank/title/url（省 agent 上下文 token，meta 完整）。
 重试（封顶 8s，计入超时预算）；`meta.retries` 记录实际重试次数。MCP 长驻进程内相同
 请求参数在 60s TTL 内重复调用直接命中缓存（`meta.cached=true`，`elapsed_ms=0`），
 `no_cache` 参数可绕过。CLI `--retry <n>` 同样支持重试（无缓存）。
+
+### 正文抓取与结构化提取（ADR-009）
+
+`fetch_page` / `worbrow fetch <url>` 抓取 **agent 显式传入** 的 URL，返回清洗后的正文
+文本，并可经 `extract` 白名单提取结构化字段（title/author/published_at/price/currency/
+rating/rating_max/reviews_count，提取优先级 JSON-LD → meta → DOM，缺失缺省不编造）：
+
+```bash
+worbrow fetch https://example.com --json --extract price,rating
+```
+
+- **闭环用法**：把 `web_search` 结果里的 `results[i].url` 显式传给 `fetch_page`
+  ——「搜到链接 → 读内容 → 比字段」一步到位；**绝不自动跟随搜索结果**（只抓显式 URL）
+- **参数**：`--max-chars <n>`（正文截断，默认 20000，`meta.truncated` 标记）、
+  `--no-text`（只要 `extracted`，省 token）、`--extract a,b`（allowlist，非法值 exit 2）
+- **已知行为**：HTTP 4xx/5xx/验证码/404 页导航成功即成功包（正文可能为空，v1 不检测
+  HTTP 状态码）；`meta.final_url` 记录重定向落地页；SPA/懒加载内容可能缺失
+- **安全边界**：仅 `http/https`（缺 scheme 自动补 `https://`）；用真实浏览器导航，
+  页面 JS 在浏览器内执行（等价自己点开链接）；**可访问本机/内网**（等价本机浏览器，
+  防止被诱导抓内网请勿对不可信输入使用）；不做批量抓取，频率纪律仍适用
+- **合规**：fetch 是用户显式发起的整页抓取，与搜索爬虫的摘要-only 政策是两条独立路径
 
 ## Agent 集成
 
@@ -157,6 +184,20 @@ fn main() -> Result<(), worbrow::Error> {
     for r in &outcome.results {
         println!("{} - {}", r.rank, r.title);
     }
+    Ok(())
+}
+```
+
+正文抓取（ADR-009）同样是一等库 API：
+
+```rust
+use worbrow::{BrowserKind, ExtractField, FetchConfig, fetch};
+
+fn main() -> Result<(), worbrow::Error> {
+    let page = fetch(FetchConfig::new("https://example.com/rust", BrowserKind::Firefox)
+        .with_extract(vec![ExtractField::Title, ExtractField::PublishedAt]))?;
+    println!("{}: {} chars", page.url, page.chars);
+    println!("title: {:?}", page.extracted.get("title"));
     Ok(())
 }
 ```

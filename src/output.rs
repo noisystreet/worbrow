@@ -4,7 +4,7 @@ use std::fmt::Write as _;
 
 use serde::Serialize;
 
-use crate::domain::{SearchMeta, SearchResult};
+use crate::domain::{FetchedPage, SearchMeta, SearchResult};
 use crate::error::Error;
 
 /// 输出 schema 主版本。字段只增不改；破坏性变更 bump 主版本。
@@ -119,6 +119,76 @@ pub fn success_text(query: &str, results: &[SearchResult], meta: &SearchMeta) ->
 /// 人读失败文本（无 `--json`）。
 pub fn failure_text(err: &Error) -> String {
     format!("错误 [{}]: {err}\n", err.code_str())
+}
+
+/// 抓取成功包（`worbrow fetch` / MCP `fetch_page`，ADR-009）：新 sibling 契约，
+/// 与 search 成功包同 `schema_version`；对既有客户端无感。
+#[derive(Serialize)]
+pub struct FetchSuccessPayload<'a> {
+    pub schema_version: u32,
+    pub url: &'a str,
+    pub fetched_at: chrono::DateTime<chrono::Utc>,
+    /// 清洗后正文（`text=false` 时为空串）。
+    pub text: &'a str,
+    /// 结构化字段（键 = `ExtractField::as_str`；缺失字段不出现）。
+    pub extracted: &'a serde_json::Map<String, serde_json::Value>,
+    pub meta: FetchMeta<'a>,
+}
+
+/// 抓取元信息。
+#[derive(Serialize)]
+pub struct FetchMeta<'a> {
+    pub elapsed_ms: u64,
+    pub chars: usize,
+    pub truncated: bool,
+    /// 重定向落地页（导航后 `location.href`）。
+    pub final_url: Option<&'a str>,
+}
+
+/// 抓取成功包（`--json` 时 stdout）。
+pub fn fetch_success(page: &FetchedPage) -> String {
+    serde_json::to_string_pretty(&FetchSuccessPayload {
+        schema_version: SCHEMA_VERSION,
+        url: &page.url,
+        fetched_at: page.fetched_at,
+        text: &page.text,
+        extracted: &page.extracted,
+        meta: FetchMeta {
+            elapsed_ms: page.elapsed_ms,
+            chars: page.chars,
+            truncated: page.truncated,
+            final_url: page.final_url.as_deref(),
+        },
+    })
+    .expect("序列化抓取成功包不应失败")
+}
+
+/// 人读抓取成功文本（无 `--json`）。
+pub fn fetch_success_text(page: &FetchedPage) -> String {
+    let mut out = String::new();
+    let _ = writeln!(
+        out,
+        "url: {}\nchars: {}  elapsed: {}ms{}",
+        page.url,
+        page.chars,
+        page.elapsed_ms,
+        if page.truncated { "  (truncated)" } else { "" }
+    );
+    if let Some(final_url) = &page.final_url
+        && final_url != &page.url
+    {
+        let _ = writeln!(out, "redirected: {final_url}");
+    }
+    if !page.extracted.is_empty() {
+        let _ = writeln!(out, "extracted:");
+        for (k, v) in &page.extracted {
+            let _ = writeln!(out, "  {k}: {v}");
+        }
+    }
+    if !page.text.is_empty() {
+        let _ = writeln!(out, "\n{}", page.text);
+    }
+    out
 }
 
 #[cfg(test)]
@@ -254,5 +324,85 @@ mod tests {
         );
         // meta 完整保留
         assert_eq!(parsed["meta"]["engine"], "bing");
+    }
+
+    /// fetch 成功包：schema_version/url/text/extracted/meta 形状完整。
+    #[test]
+    fn fetch_success_payload_has_contract_shape() {
+        use crate::domain::ExtractField as F;
+        let page = FetchedPage {
+            url: "https://example.com/a".into(),
+            fetched_at: Utc::now(),
+            text: "正文内容".into(),
+            extracted: serde_json::Map::from_iter([(
+                F::Price.as_str().to_string(),
+                serde_json::json!("1299.00"),
+            )]),
+            elapsed_ms: 42,
+            chars: 4,
+            truncated: false,
+            final_url: Some("https://example.com/b".into()),
+        };
+        let json = fetch_success(&page);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["schema_version"], 1);
+        assert_eq!(parsed["url"], "https://example.com/a");
+        assert_eq!(parsed["text"], "正文内容");
+        assert_eq!(parsed["extracted"]["price"], "1299.00");
+        assert_eq!(parsed["meta"]["chars"], 4);
+        assert_eq!(parsed["meta"]["truncated"], false);
+        assert_eq!(parsed["meta"]["final_url"], "https://example.com/b");
+        // 失败包复用统一信封
+        let err = Error::Cli("bad url".into());
+        let failed = failure(&err);
+        let parsed: serde_json::Value = serde_json::from_str(&failed).unwrap();
+        assert_eq!(parsed["schema_version"], 1);
+        assert_eq!(parsed["error"]["code"], "cli");
+    }
+
+    /// fetch 人读文本：含 url/chars/extracted/正文，无 schema_version。
+    #[test]
+    fn fetch_success_text_is_human_readable() {
+        let page = FetchedPage {
+            url: "https://example.com/a".into(),
+            fetched_at: Utc::now(),
+            text: "正文内容".into(),
+            extracted: serde_json::Map::new(),
+            elapsed_ms: 10,
+            chars: 4,
+            truncated: true,
+            final_url: None,
+        };
+        let text = fetch_success_text(&page);
+        assert!(text.contains("url: https://example.com/a"));
+        assert!(text.contains("(truncated)"));
+        assert!(text.contains("正文内容"));
+        assert!(!text.contains("schema_version"));
+    }
+
+    /// fetch 人读文本：重定向落地页与请求 URL 不同 → 输出 redirected 行。
+    #[test]
+    fn fetch_success_text_shows_redirect() {
+        let page = FetchedPage {
+            url: "https://example.com/a".into(),
+            fetched_at: Utc::now(),
+            text: String::new(),
+            extracted: serde_json::Map::new(),
+            elapsed_ms: 10,
+            chars: 0,
+            truncated: false,
+            final_url: Some("https://example.com/b".into()),
+        };
+        let text = fetch_success_text(&page);
+        assert!(
+            text.contains("redirected: https://example.com/b"),
+            "final_url 与 url 不同时输出 redirected 行（实际: {text}）"
+        );
+        // final_url == url 时不输出 redirected
+        let page_same = FetchedPage {
+            final_url: Some("https://example.com/a".into()),
+            ..page
+        };
+        assert!(!fetch_success_text(&page_same).contains("redirected"));
     }
 }

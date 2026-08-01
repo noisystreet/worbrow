@@ -11,7 +11,9 @@ use serde::Serialize;
 use tokio::time::timeout;
 
 use crate::SearchResult;
-use crate::domain::{BrowserKind, Freshness, SafesearchLevel, SearchMeta, SearchQuery};
+use crate::domain::{
+    BrowserKind, ExtractField, FetchedPage, Freshness, SafesearchLevel, SearchMeta, SearchQuery,
+};
 use crate::engines;
 use crate::error::Error;
 use crate::ports::{BrowserDriver, SearchProvider};
@@ -24,6 +26,8 @@ pub const WAIT_BUDGET: Duration = Duration::from_secs(10);
 /// 同域名去重上限（P2，roadmap-result-quality.md）：未启用 `site:` 过滤时，同一域名
 /// 最多保留该条数（防单一来源刷屏）；`site:` 过滤时用户意图为同域，不限制。
 pub const DOMAIN_LIMIT: usize = 2;
+/// fetch 页面加载等待轮询间隔（`wait_load`，ADR-009）。
+const LOAD_POLL: Duration = Duration::from_millis(200);
 
 /// 内容型（`ResultKind::Web`）结果数：质量降级信号核心（roadmap-result-quality.md）。
 /// 词典/翻译等污染结果不计入——高产低质（如 Bing 对 `best`/`learn` 返回全词典释义）
@@ -186,6 +190,90 @@ impl Config {
                 self.engines.push(name);
             }
         }
+        self
+    }
+}
+
+/// 正文抓取配置（ADR-009；公开面，字段私有，构造与修改只经 [`FetchConfig::new`]/builder）。
+pub struct FetchConfig {
+    url: String,
+    /// 正文截断上限（字符；`DEFAULT_MAX_CHARS`）。
+    max_chars: usize,
+    /// 是否返回清洗后正文（false = 只返回 `extracted`，省 token）。
+    text: bool,
+    /// 结构化字段提取 allowlist（空 = 不提取）。
+    extract: Vec<ExtractField>,
+    timeout: Duration,
+    browser: BrowserKind,
+    /// 瞬时网络错误重试次数（`--retry`；指数退避，封顶）。
+    retry: usize,
+    screenshot: Option<PathBuf>,
+    dump_html: Option<PathBuf>,
+    /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
+    driver: Option<Box<dyn BrowserDriver>>,
+}
+
+impl FetchConfig {
+    /// 典型抓取配置：默认 `max_chars` 取 `domain::DEFAULT_MAX_CHARS`、默认 `timeout`
+    /// 取 `domain::DEFAULT_TIMEOUT_SECS`、返回正文、不提取字段。
+    pub fn new(url: impl Into<String>, browser: BrowserKind) -> Self {
+        Self {
+            url: url.into(),
+            max_chars: crate::domain::DEFAULT_MAX_CHARS,
+            text: true,
+            extract: Vec::new(),
+            timeout: Duration::from_secs(crate::domain::DEFAULT_TIMEOUT_SECS),
+            browser,
+            retry: 0,
+            screenshot: None,
+            dump_html: None,
+            driver: None,
+        }
+    }
+
+    /// 正文截断上限（字符，≥1）。
+    pub fn with_max_chars(mut self, max_chars: usize) -> Self {
+        self.max_chars = max_chars.max(1);
+        self
+    }
+
+    /// 是否返回清洗后正文（false = 只返回 `extracted`）。
+    pub fn with_text(mut self, text: bool) -> Self {
+        self.text = text;
+        self
+    }
+
+    /// 结构化字段提取 allowlist（空 = 不提取）。
+    pub fn with_extract(mut self, extract: Vec<ExtractField>) -> Self {
+        self.extract = extract;
+        self
+    }
+
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// 瞬时网络错误重试次数（指数退避，封顶；0 = 不重试）。
+    /// 仅 `Error::Network` 触发重试（与 [`Config::with_retry`] 同语义）。
+    pub fn with_retry(mut self, retry: usize) -> Self {
+        self.retry = retry;
+        self
+    }
+
+    pub fn with_screenshot(mut self, path: Option<PathBuf>) -> Self {
+        self.screenshot = path;
+        self
+    }
+
+    pub fn with_dump_html(mut self, path: Option<PathBuf>) -> Self {
+        self.dump_html = path;
+        self
+    }
+
+    /// 测试注入驱动（生产不要调用；优先级高于 `browser`）。
+    pub fn with_driver(mut self, driver: Box<dyn BrowserDriver>) -> Self {
+        self.driver = Some(driver);
         self
     }
 }
@@ -391,6 +479,164 @@ pub(crate) async fn run_with(
         results,
         meta,
     })
+}
+
+/// 同步入口：内部创建 tokio runtime 并阻塞执行一次正文抓取（CLI/脚本便捷形态）。
+///
+/// **适用上下文**：无 tokio runtime 的线程（同 [`search`] 语义）；
+/// 异步上下文请直接用 [`run_fetch`]。
+pub fn fetch(config: FetchConfig) -> Result<FetchedPage, Error> {
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|e| Error::Internal(format!("tokio runtime 初始化失败: {e}")))?;
+    runtime.block_on(run_fetch(config))
+}
+
+/// 执行一次正文抓取（ADR-009）。**异步首选入口**：自建 driver（CLI/独立调用）。
+pub async fn run_fetch(mut config: FetchConfig) -> Result<FetchedPage, Error> {
+    // URL 校验前置：非法 URL 直接参数错误，不启动浏览器（CLI 无浏览器环境也能自检）
+    let _ = normalize_fetch_url(&config.url)?;
+    let mut driver = match config.driver.take() {
+        Some(d) => d,
+        None => crate::drivers::resolve(config.browser).await?,
+    };
+    run_fetch_with(&mut *driver, config).await
+}
+
+/// 使用**外部注入**驱动的抓取编排（MCP 会话池复用浏览器进程，镜像 [`run_with`]）。
+/// 调用方负责回收：网络/超时错误后按错误类型标记会话健康，Drop 时归还或丢弃。
+pub(crate) async fn run_fetch_with(
+    driver: &mut dyn BrowserDriver,
+    config: FetchConfig,
+) -> Result<FetchedPage, Error> {
+    // 1. URL 校验与归一化（scheme 缺失自动补 https://；非 http/https → 参数错误）
+    let url = normalize_fetch_url(&config.url)?;
+    let started_at = Utc::now();
+    let timer = Instant::now();
+
+    // 2. 全局硬超时 + 瞬时网络错误退避重试（仅 Error::Network，同 search 语义）
+    let retries = config.retry;
+    let result = timeout(config.timeout, async {
+        let mut attempt = 0usize;
+        loop {
+            match fetch_attempt(driver, &url, config.timeout).await {
+                Ok(v) => break Ok((v, attempt)),
+                Err(e @ Error::Network(_)) if attempt < retries => {
+                    attempt += 1;
+                    let delay = backoff_delay(attempt);
+                    tracing::warn!(attempt, ?delay, "瞬时网络错误，退避重试: {e}");
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => break Err(e),
+            }
+        }
+    })
+    .await;
+    let (html, final_url) = match result {
+        Ok(Ok((v, _))) => v,
+        Ok(Err(e)) => return Err(e),
+        Err(_) => return Err(Error::Timeout("任务超时".into())),
+    };
+
+    // 3. 提取正文/结构化字段（同一份 HTML 二次解析，不重复导航）
+    let (text, truncated) = if config.text {
+        crate::extract::extract_main_text(&html, config.max_chars)
+    } else {
+        (String::new(), false)
+    };
+    let extracted = crate::extract::extract_fields(&html, &config.extract);
+
+    // 4. 可选调试产物（失败仅告警，不影响主流程）
+    if let Some(path) = config.screenshot.as_deref()
+        && let Err(e) = driver.screenshot(path).await
+    {
+        tracing::warn!("截图保存失败 {path:?}: {e}");
+    }
+    if let Some(path) = config.dump_html.as_deref()
+        && let Err(e) = std::fs::write(path, &html)
+    {
+        tracing::warn!("HTML 保存失败 {path:?}: {e}");
+    }
+
+    // 5. 组装 FetchedPage
+    let chars = text.chars().count();
+    Ok(FetchedPage {
+        url: url.to_string(),
+        fetched_at: started_at,
+        text,
+        extracted,
+        elapsed_ms: timer.elapsed().as_millis() as u64,
+        chars,
+        truncated,
+        final_url,
+    })
+}
+
+/// 单次抓取尝试：导航 → 等待加载（尽力）→ 取 HTML → 读重定向落地页。
+async fn fetch_attempt(
+    driver: &mut dyn BrowserDriver,
+    url: &url::Url,
+    timeout_dur: Duration,
+) -> Result<(String, Option<String>), Error> {
+    driver.navigate(url.clone()).await?;
+    // 等待加载：尽力语义（预算耗尽/eval 失败均不报错，导航成功即成功包）
+    wait_load(driver, timeout_dur.min(WAIT_BUDGET)).await;
+    let html = driver.html().await?;
+    let final_url = driver
+        .eval("location.href")
+        .await
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_string));
+    Ok((html, final_url))
+}
+
+/// 等待页面加载完成（尽力语义）：轮询 `document.readyState == "complete"`；
+/// 预算耗尽或 eval 失败（如 fake 驱动/受限页）即返回，不报错。
+async fn wait_load(driver: &mut dyn BrowserDriver, budget: Duration) {
+    let deadline = Instant::now() + budget;
+    loop {
+        match driver.eval("document.readyState").await {
+            Ok(v) if v.as_str() == Some("complete") => return,
+            Ok(_) => {}
+            // 无法评估 → 视为已加载（不阻塞抓取）
+            Err(_) => return,
+        }
+        if Instant::now() >= deadline {
+            return;
+        }
+        tokio::time::sleep(LOAD_POLL).await;
+    }
+}
+
+/// 归一化抓取 URL：缺 scheme 自动补 `https://`（与浏览器行为一致）；协议相对 URL
+/// （`//example.com`）显式补 `https:`；去 fragment；仅放行 http/https。
+/// 非法（空/无法解析/非 http/https）→ `Error::Cli`（参数错误，exit 2）。
+/// `pub(crate)`：CLI 与 MCP 共用前置校验（MCP 在 acquire 会话前调用，非法 URL 不启动浏览器）。
+pub(crate) fn normalize_fetch_url(raw: &str) -> Result<url::Url, Error> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Err(Error::Cli("URL 为空".into()));
+    }
+    // 协议相对 URL（//example.com）→ https://example.com（与引擎 normalize_url 一致）
+    let raw = if let Some(rest) = raw.strip_prefix("//") {
+        format!("https://{rest}")
+    } else {
+        raw.to_string()
+    };
+    // 无 scheme 时按浏览器行为补 https://（如 `example.com/foo` → `https://example.com/foo`）
+    let candidate = if raw.contains("://") {
+        raw
+    } else {
+        format!("https://{raw}")
+    };
+    let mut url = url::Url::parse(&candidate).map_err(|e| Error::Cli(format!("URL 无效: {e}")))?;
+    if !matches!(url.scheme(), "http" | "https") {
+        return Err(Error::Cli(format!(
+            "不支持的 URL scheme: {}（仅支持 http/https）",
+            url.scheme()
+        )));
+    }
+    url.set_fragment(None);
+    Ok(url)
 }
 
 /// 单次完整搜索尝试的结果元组（engine, html, results, captcha, pages, low_yield, tried）。
@@ -1118,5 +1364,253 @@ mod tests {
             .with_site(Some("example.com".into()));
         let outcome = run_with(&mut driver, cfg).await.expect("应成功");
         assert_eq!(outcome.results.len(), 4, "site: 过滤时同域名不截断");
+    }
+
+    // ==== fetch（ADR-009）====
+
+    /// 抓取驱动：返回文章页 fixture，eval 模拟 readyState/location.href。
+    struct FetchDriver {
+        html: String,
+        current: Option<String>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::ports::BrowserDriver for FetchDriver {
+        async fn navigate(&mut self, url: url::Url) -> Result<(), Error> {
+            self.current = Some(url.to_string());
+            Ok(())
+        }
+        async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn html(&self) -> Result<String, Error> {
+            Ok(self.html.clone())
+        }
+        async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error> {
+            if js.contains("readyState") {
+                return Ok(serde_json::Value::String("complete".into()));
+            }
+            if js.contains("location.href") {
+                return Ok(serde_json::Value::String(
+                    self.current.clone().unwrap_or_default(),
+                ));
+            }
+            Ok(serde_json::Value::Null)
+        }
+        async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+            Ok(())
+        }
+    }
+
+    /// URL 归一化：缺 scheme 自动补 https；去 fragment；非 http/https → 参数错误。
+    #[test]
+    fn normalize_fetch_url_auto_prefixes_and_validates() {
+        assert_eq!(
+            normalize_fetch_url("example.com/a").unwrap().to_string(),
+            "https://example.com/a"
+        );
+        assert_eq!(
+            normalize_fetch_url("http://example.com")
+                .unwrap()
+                .to_string(),
+            "http://example.com/",
+            "url crate 对无路径 URL 归一化补尾斜杠"
+        );
+        assert_eq!(
+            normalize_fetch_url("https://example.com/a#sec")
+                .unwrap()
+                .to_string(),
+            "https://example.com/a",
+            "去 fragment"
+        );
+        assert_eq!(
+            normalize_fetch_url("//example.com/x").unwrap().to_string(),
+            "https://example.com/x",
+            "协议相对 URL 显式补 https:"
+        );
+        assert!(
+            matches!(normalize_fetch_url(""), Err(Error::Cli(_))),
+            "空 URL → 参数错误"
+        );
+        assert!(
+            matches!(
+                normalize_fetch_url("file:///etc/passwd"),
+                Err(Error::Cli(_))
+            ),
+            "file scheme → 参数错误"
+        );
+        assert!(
+            matches!(
+                normalize_fetch_url("javascript:alert(1)"),
+                Err(Error::Cli(_))
+            ),
+            "javascript scheme → 参数错误"
+        );
+    }
+
+    /// run_fetch_with：正文 + 结构化字段 + final_url（fake 驱动返回文章页 fixture）。
+    #[tokio::test]
+    async fn fetch_with_returns_text_fields_and_final_url() {
+        use crate::domain::ExtractField as F;
+        let mut driver = FetchDriver {
+            html: include_str!("../tests/fixtures/article.html").to_string(),
+            current: None,
+        };
+        let cfg = FetchConfig::new("https://example.com/a", BrowserKind::Fake)
+            .with_max_chars(20_000)
+            .with_extract(F::ALL.to_vec())
+            .with_timeout(Duration::from_secs(10));
+        let page = run_fetch_with(&mut driver, cfg).await.expect("抓取应成功");
+        assert_eq!(page.url, "https://example.com/a");
+        assert_eq!(
+            page.final_url.as_deref(),
+            Some("https://example.com/a"),
+            "fake 无重定向 → final_url = 请求 URL"
+        );
+        assert!(page.text.contains("这是第一段正文内容。"));
+        assert!(!page.text.contains("导航链接"));
+        assert_eq!(page.extracted["price"], "1299.00");
+        assert_eq!(page.extracted["rating"], 4.6);
+        assert_eq!(page.chars, page.text.chars().count());
+        assert!(!page.truncated);
+    }
+
+    /// text=false：正文为空（chars=0），字段照常提取。
+    #[tokio::test]
+    async fn fetch_with_text_false_skips_body() {
+        use crate::domain::ExtractField as F;
+        let mut driver = FetchDriver {
+            html: include_str!("../tests/fixtures/article.html").to_string(),
+            current: None,
+        };
+        let cfg = FetchConfig::new("https://example.com/a", BrowserKind::Fake)
+            .with_text(false)
+            .with_extract(vec![F::Price])
+            .with_timeout(Duration::from_secs(10));
+        let page = run_fetch_with(&mut driver, cfg).await.expect("抓取应成功");
+        assert!(page.text.is_empty(), "text=false 时正文为空");
+        assert_eq!(page.chars, 0);
+        assert_eq!(page.extracted["price"], "1299.00", "字段仍提取");
+    }
+
+    /// 非法 URL：参数错误直接返回（不触网）。
+    #[tokio::test]
+    async fn fetch_with_rejects_invalid_url() {
+        let mut driver = FetchDriver {
+            html: String::new(),
+            current: None,
+        };
+        let cfg = FetchConfig::new("file:///etc/passwd", BrowserKind::Fake)
+            .with_timeout(Duration::from_secs(10));
+        let err = run_fetch_with(&mut driver, cfg)
+            .await
+            .expect_err("非法 URL 应报错");
+        assert!(matches!(err, Error::Cli(_)));
+    }
+
+    /// `run_fetch`（resolve FakeDriver = SMOKE_HTML）：成功包 + 截断 + title 提取。
+    #[tokio::test]
+    async fn fetch_via_fake_driver_truncates_and_returns_url() {
+        use crate::domain::ExtractField as F;
+        let cfg = FetchConfig::new("https://example.com", BrowserKind::Fake)
+            .with_max_chars(5)
+            .with_extract(vec![F::Title])
+            .with_timeout(Duration::from_secs(10));
+        let page = run_fetch(cfg).await.expect("fetch 应成功");
+        assert_eq!(page.url, "https://example.com/");
+        assert_eq!(page.text.chars().count(), 5, "截断到 max_chars");
+        assert!(page.truncated);
+        assert_eq!(
+            page.final_url.as_deref(),
+            Some("https://example.com/"),
+            "fake eval location.href = 导航 URL"
+        );
+        assert_eq!(
+            page.extracted["title"], "rust async - 搜索",
+            "SMOKE_HTML 的 <title> 可提取"
+        );
+    }
+
+    /// `run_fetch` text=false：正文为空（省 token），URL 缺 scheme 自动补 https。
+    #[tokio::test]
+    async fn fetch_via_fake_without_text() {
+        let cfg = FetchConfig::new("example.com", BrowserKind::Fake)
+            .with_text(false)
+            .with_timeout(Duration::from_secs(10));
+        let page = run_fetch(cfg).await.expect("fetch 应成功");
+        assert!(page.text.is_empty(), "text=false 时正文为空");
+        assert_eq!(page.chars, 0);
+        assert_eq!(page.url, "https://example.com/", "缺 scheme 自动补 https");
+    }
+
+    /// `run_fetch` 非法 URL：校验前置，不 resolve 浏览器（无浏览器环境也可测）。
+    #[tokio::test]
+    async fn fetch_via_fake_rejects_bad_url_before_resolve() {
+        let cfg = FetchConfig::new("file:///etc/passwd", BrowserKind::Fake)
+            .with_timeout(Duration::from_secs(10));
+        let err = run_fetch(cfg).await.expect_err("非法 URL 应报错");
+        assert!(matches!(err, Error::Cli(_)));
+    }
+
+    /// wait_load：eval 持续返回非 complete（SPA 慢加载）→ 预算耗尽后返回（尽力语义）。
+    #[tokio::test]
+    async fn wait_load_gives_up_after_budget() {
+        struct SlowDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for SlowDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(String::new())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::String("loading".into()))
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+        let mut driver = SlowDriver;
+        let start = Instant::now();
+        wait_load(&mut driver, Duration::from_millis(150)).await;
+        assert!(
+            start.elapsed() >= Duration::from_millis(150),
+            "预算耗尽才返回（尽力语义，不报错）"
+        );
+    }
+
+    /// wait_load：eval 失败（受限页/驱动异常）→ 立即返回，不阻塞抓取。
+    #[tokio::test]
+    async fn wait_load_returns_on_eval_error() {
+        struct BrokenDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for BrokenDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(String::new())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Err(Error::Network("eval 失败".into()))
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+        let mut driver = BrokenDriver;
+        let start = Instant::now();
+        wait_load(&mut driver, Duration::from_secs(5)).await;
+        assert!(
+            start.elapsed() < Duration::from_secs(1),
+            "eval 失败应立即返回（视为已加载）"
+        );
     }
 }
