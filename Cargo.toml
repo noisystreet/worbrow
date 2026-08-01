@@ -37,7 +37,10 @@ thiserror = "2.0.19"
 tokio = { version = "1.53.1", features = ["rt-multi-thread", "macros", "time", "process", "fs", "net", "io-util", "sync"] }
 tokio-tungstenite = "0.30.0"
 tracing = "0.1.44"
-tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
+# default-features = false 去掉 tracing-log 桥接：项目不使用 log crate，且 LogTracer 是
+# 进程级单例（log::set_logger 二次设置会 panic），去除后 fmt().init() 不再安装 LogTracer，
+# 库被嵌入已初始化 tracing 的应用时无二次 init 风险
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "ansi", "env-filter", "std", "smallvec"] }
 url = "2.5.8"
 
 [dev-dependencies]

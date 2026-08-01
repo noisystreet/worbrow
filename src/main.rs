@@ -162,6 +162,8 @@ fn mcp_main(idle_timeout: u64) -> ExitCode {
 }
 
 /// 初始化 stderr 日志（默认 off，避免污染 stdout 契约）。
+/// 幂等：tracing 全局注册表只允许一次初始化（`try_init` 返回 AlreadySet 时静默跳过），
+/// 二进制的 `init_tracing` 与外部重复调用均不 panic、不破坏已有 subscriber。
 fn init_tracing(level: LogLevelArg) {
     let level = match level {
         LogLevelArg::Off => return,
@@ -171,8 +173,8 @@ fn init_tracing(level: LogLevelArg) {
         LogLevelArg::Debug => "debug",
         LogLevelArg::Trace => "trace",
     };
-    tracing_subscriber::fmt()
+    let _ = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
         .with_env_filter(tracing_subscriber::EnvFilter::new(level))
-        .init();
+        .try_init();
 }
