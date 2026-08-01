@@ -221,6 +221,9 @@ pub struct SearchResult {
     pub snippet: String,      // 摘要，可为空
     pub domain: String,       // URL host（来源域，供 agent 免解析判断可信度）
     pub https: bool,          // scheme 是否为 https
+    pub published_at: Option<String>, // 发布日期（摘要尽力提取；格式随引擎变化）
+    pub is_ad: bool,          // 广告位结果（Bing 选择器已排除恒 false；DDG 标记）
+    pub url_resolved: bool,   // 是否已解跳转（uddg/ck-a 展开为真实目标）
 }
 
 #[derive(Serialize)]
@@ -307,7 +310,8 @@ pub trait SearchProvider: Send + Sync {
   "query": "rust 异步运行时 对比",
   "results": [
     { "rank": 1, "title": "…", "url": "https://…", "snippet": "…",
-      "domain": "example.com", "https": true }
+      "domain": "example.com", "https": true,
+      "published_at": "2025年5月25日", "is_ad": false, "url_resolved": true }
   ],
   "meta": {
     "engine": "bing",

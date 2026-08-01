@@ -197,16 +197,31 @@ impl DoctorReport {
     }
 }
 
-/// 同步入口：内部创建 tokio runtime 并阻塞执行一次搜索。
+/// 同步入口：内部创建 tokio runtime 并阻塞执行一次搜索（CLI/脚本/测试便捷形态）。
 ///
-/// CLI/脚本等非 async 调用方无需自行管理 runtime；异步场景（如 MCP）直接使用 [`run`]。
+/// **适用上下文**：无 tokio runtime 的线程——`main`、CLI/脚本、`spawn_blocking` 闭包、
+/// 独立线程（blocking 线程内创建新 runtime 是安全的）。
+///
+/// **不要**在 async 上下文（tokio worker 线程）中调用：会触发「runtime within a runtime」
+/// panic。异步场景请直接 [`run`]，或在 async 内同步等待时用
+/// `tokio::task::block_in_place(|| handle.block_on(run(cfg)))`（需 multi-thread runtime）。
 pub fn search(config: Config) -> Result<Outcome, Error> {
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| Error::Internal(format!("tokio runtime 初始化失败: {e}")))?;
     runtime.block_on(run(config))
 }
 
-/// 执行一次搜索（design.md §6.2 步骤 1-10）。
+/// 执行一次搜索（design.md §6.2 步骤 1-10）。**异步首选入口**。
+///
+/// 在已有 tokio runtime 的上下文中调用（MCP handler、`tokio::main`、`#[tokio::test]` 等）；
+/// 无 runtime 的同步场景用 [`search`]。async 内需要同步阻塞等待时：
+///
+/// ```rust,no_run
+/// # use worbrow::{BrowserKind, Config, run};
+/// # let config = Config::new("q", "bing", BrowserKind::Fake);
+/// let handle = tokio::runtime::Handle::current();
+/// let outcome = tokio::task::block_in_place(|| handle.block_on(run(config))).unwrap();
+/// ```
 pub async fn run(config: Config) -> Result<Outcome, Error> {
     // 1. 解析并校验 query
     let text = config.query.trim();
