@@ -73,6 +73,31 @@ impl Drop for CdpInner {
     }
 }
 
+/// 保护**尚未移入 `CdpInner`** 的 Chrome 子进程：`spawn()` 内部在 await
+/// （端口发现/WebSocket 握手）期间被取消/出错时，`std::process::Child` 的 Drop
+/// 不会杀进程，必须由本 guard 兜底 kill + wait，否则残留 Chrome（design.md §8）。
+/// 成功路径 `into_inner()` 取出 child 移入 Inner，guard 不再动作。
+struct ChildGuard(Option<Child>);
+
+impl ChildGuard {
+    fn new(child: Child) -> Self {
+        Self(Some(child))
+    }
+    /// 成功取出 child（guard 失效）。
+    fn into_inner(mut self) -> Child {
+        self.0.take().expect("child 尚未被取出")
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
 impl CdpDriver {
     /// 启动 Chrome 并完成连接：find → 校验版本 → spawn → 发现 ws url → 握手
     /// （design.md §6.2 步骤 3）。
@@ -109,20 +134,18 @@ impl CdpDriver {
         cmd.stderr(Stdio::from(std::fs::File::create(&devtools_log).map_err(
             |e| Error::Env(format!("创建 DevTools 日志文件失败: {e}")),
         )?));
-        let mut child = cmd
+        let child = cmd
             .spawn()
             .map_err(|e| Error::Env(format!("启动 Chrome（{}）失败: {e}", binary.display())))?;
+        // child 尚未进入 Inner：guard 保证任何错误/取消路径都 kill+wait，
+        // 否则 std::process::Child 的 Drop 不杀进程 → 残留 Chrome（design.md §8）
+        let child = ChildGuard::new(child);
 
         // 轮询 devtools.log 直到出现 DevTools WebSocket URL（等价 marionette 的 connect_retry）
         let ws_url = match timeout(CONNECT_TIMEOUT, discover_ws_url(&devtools_log)).await {
             Ok(Ok(u)) => u,
-            // child 尚未进入 Inner：必须在此主动 kill，否则连接失败会残留进程（design.md §8）
-            Ok(Err(e)) => {
-                let _ = child.kill();
-                return Err(e);
-            }
+            Ok(Err(e)) => return Err(e),
             Err(_) => {
-                let _ = child.kill();
                 return Err(Error::Timeout(
                     "等待 Chrome DevTools 就绪超时（chrome 启动失败，详见 devtools.log）".into(),
                 ));
@@ -131,17 +154,14 @@ impl CdpDriver {
 
         let transport = match CdpTransport::connect(&ws_url).await {
             Ok(t) => t,
-            Err(e) => {
-                let _ = child.kill();
-                return Err(e);
-            }
+            Err(e) => return Err(e),
         };
 
         Ok(Box::new(CdpDriver {
             inner: Arc::new(Mutex::new(CdpInner {
                 transport,
                 session_id: None,
-                child: Some(child),
+                child: Some(child.into_inner()),
                 profile: Some(profile),
             })),
         }))
