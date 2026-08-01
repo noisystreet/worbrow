@@ -21,7 +21,7 @@ use rmcp::{
 use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::app;
-use crate::domain::{BrowserKind, Freshness, SafesearchLevel};
+use crate::domain::{BrowserKind, ExtractField, Freshness, SafesearchLevel};
 use crate::drivers::SessionPool;
 use crate::error::Error;
 
@@ -274,6 +274,56 @@ pub struct SearchParams {
     pub compact: bool,
 }
 
+/// `fetch_page` 工具输入参数（schemars 自动生成 JSON Schema）。
+#[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
+pub struct FetchParams {
+    /// 目标 URL（http/https；缺失 scheme 自动补 https://）
+    #[schemars(description = "要抓取的页面 URL（http/https；缺失 scheme 自动补 https://）")]
+    pub url: String,
+    /// 浏览器后端
+    #[schemars(
+        description = "浏览器后端（fake=测试/无需浏览器，firefox=本机 Firefox，chrome=Chrome/Edge）",
+        default = "default_browser"
+    )]
+    #[serde(default = "default_browser")]
+    pub browser: String,
+    /// 正文截断上限（字符）
+    #[schemars(
+        description = "正文截断上限字符数（默认 20000）",
+        default = "default_max_chars"
+    )]
+    #[serde(default = "default_max_chars")]
+    pub max_chars: usize,
+    /// 结构化字段提取（allowlist）
+    #[schemars(
+        description = "结构化字段提取列表（可选，如 [\"price\",\"rating\"]；可用: title/author/published_at/price/currency/rating/rating_max/reviews_count）",
+        default = "default_none_vec"
+    )]
+    #[serde(default = "default_none_vec")]
+    pub extract: Option<Vec<String>>,
+    /// 是否返回正文文本
+    #[schemars(
+        description = "是否返回清洗后正文（默认 true；false = 只返回 extracted 字段，省 token）",
+        default = "default_text"
+    )]
+    #[serde(default = "default_text")]
+    pub text: bool,
+    /// 全流程硬超时（秒）
+    #[schemars(
+        description = "全流程硬超时秒数（默认 60）",
+        default = "default_timeout_secs"
+    )]
+    #[serde(default = "default_timeout_secs")]
+    pub timeout: u64,
+    /// 瞬时网络错误重试次数（指数退避，封顶）
+    #[schemars(
+        description = "瞬时网络错误重试次数（默认 0 = 不重试；仅网络错误触发）",
+        default = "default_retry"
+    )]
+    #[serde(default = "default_retry")]
+    pub retry: usize,
+}
+
 fn default_engine() -> String {
     crate::domain::DEFAULT_ENGINE.to_string()
 }
@@ -318,6 +368,18 @@ fn default_compact() -> bool {
     false
 }
 
+fn default_max_chars() -> usize {
+    crate::domain::DEFAULT_MAX_CHARS
+}
+
+fn default_text() -> bool {
+    true
+}
+
+fn default_none_vec() -> Option<Vec<String>> {
+    None
+}
+
 impl SearchServer {
     /// 解析浏览器后端参数（CLI `--browser` 与 MCP 共用 `BrowserKind::from_arg` 单一映射）。
     fn parse_browser(s: &str) -> Result<BrowserKind, Error> {
@@ -350,6 +412,23 @@ impl SearchServer {
                 ))
             }),
         }
+    }
+
+    /// 解析结构化字段提取 allowlist（缺省 = 空；非法值 → 参数错误，工具级 error）。
+    fn parse_extract(list: Option<&[String]>) -> Result<Vec<ExtractField>, Error> {
+        let Some(list) = list else {
+            return Ok(Vec::new());
+        };
+        let mut fields = Vec::new();
+        for s in list {
+            let f = ExtractField::from_arg(s).ok_or_else(|| {
+                Error::Cli(format!(
+                    "不支持的提取字段: {s}（支持 title/author/published_at/price/currency/rating/rating_max/reviews_count）"
+                ))
+            })?;
+            fields.push(f);
+        }
+        Ok(fields)
     }
 }
 
@@ -453,6 +532,59 @@ impl SearchServer {
         // guard 在此 Drop：健康 → 归还池；不健康 → 丢弃（重建）
     }
 
+    /// 抓取 agent 显式指定的 URL 并返回清洗后的正文（MCP 工具，ADR-009）。
+    ///
+    /// 安全语义（硬约束 6）：只访问调用方显式传入的 `url` 参数，绝不自动跟随
+    /// 搜索结果；scheme 仅 http/https。可经 `extract` 白名单提取结构化字段
+    /// （JSON-LD/meta），正文可经 `text=false` 关闭（省 token）。
+    #[tool(
+        name = "fetch_page",
+        description = "抓取显式指定的 URL，返回清洗后的正文与可选结构化字段（schema_version=1 成功包）；只访问显式传入的 URL，绝不自动跟随搜索结果"
+    )]
+    async fn fetch_page(&self, Parameters(params): Parameters<FetchParams>) -> CallToolResult {
+        let browser = match Self::parse_browser(&params.browser) {
+            Ok(b) => b,
+            Err(e) => return CallToolResult::error(vec![ContentBlock::text(e.to_string())]),
+        };
+        let extract = match Self::parse_extract(params.extract.as_deref()) {
+            Ok(v) => v,
+            Err(e) => return CallToolResult::error(vec![ContentBlock::text(e.to_string())]),
+        };
+        // URL 校验前置：非法 URL 不借出/启动浏览器会话（与 CLI 路径语义一致）
+        if let Err(err) = app::normalize_fetch_url(&params.url) {
+            return CallToolResult::error(vec![ContentBlock::text(crate::output::failure(&err))]);
+        }
+        let config = app::FetchConfig::new(params.url.clone(), browser)
+            .with_max_chars(params.max_chars)
+            .with_text(params.text)
+            .with_extract(extract)
+            .with_timeout(Duration::from_secs(params.timeout.clamp(1, 300)))
+            .with_retry(params.retry.min(5));
+
+        // 借出会话（复用浏览器进程）；spawn 失败 → 工具级错误
+        let mut guard = match self.pools.pool_for(browser).acquire().await {
+            Ok(g) => g,
+            Err(err) => {
+                return CallToolResult::error(vec![ContentBlock::text(crate::output::failure(
+                    &err,
+                ))]);
+            }
+        };
+
+        let result = app::run_fetch_with(guard.driver(), config).await;
+        match result {
+            Ok(page) => CallToolResult::success(vec![ContentBlock::text(
+                crate::output::fetch_success(&page),
+            )]),
+            Err(err) => {
+                if matches!(err, Error::Network(_) | Error::Timeout(_)) {
+                    guard.mark_unhealthy();
+                }
+                CallToolResult::error(vec![ContentBlock::text(crate::output::failure(&err))])
+            }
+        }
+    }
+
     /// 列出可用引擎（agent 自查引擎名/降级顺序用，无需读错误码）。
     #[tool(
         name = "list_engines",
@@ -489,8 +621,9 @@ fn format_outcome(outcome: &app::Outcome, compact: bool) -> String {
 impl ServerHandler for SearchServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "通过驱动本机 headless 浏览器执行搜索引擎搜索。工具返回 JSON 文本：\
-                 成功包含 results/meta，失败包含 error（code/message），schema_version=1。",
+            "通过驱动本机 headless 浏览器执行搜索引擎搜索与页面抓取。\
+             web_search 返回 JSON 文本：成功包含 results/meta，失败包含 error（code/message），\
+             schema_version=1；fetch_page 抓取显式传入的 URL，返回清洗正文与可选结构化字段。",
         )
     }
 }

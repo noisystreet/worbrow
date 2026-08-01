@@ -29,17 +29,23 @@ fn run_cli() -> ExitCode {
     let cli = Cli::parse();
     init_tracing(cli.log_level);
 
-    // 子命令优先（无需搜索词）
-    if let Some(cmd) = cli.command {
+    // 子命令优先（无需搜索词）；按引用匹配，子命令字段不整体 move（fetch 分支还需全局 flag）
+    if let Some(cmd) = cli.command.as_ref() {
         return match cmd {
             Command::Doctor => doctor(),
             Command::List => list_engines(),
+            Command::Fetch {
+                url,
+                extract,
+                max_chars,
+                no_text,
+            } => fetch_main(url, extract, *max_chars, *no_text, &cli),
             #[cfg(feature = "mcp")]
             Command::Mcp {
                 idle_timeout,
                 max_sessions,
                 session_ttl,
-            } => mcp_main(idle_timeout, max_sessions, session_ttl),
+            } => mcp_main(*idle_timeout, *max_sessions, *session_ttl),
         };
     }
 
@@ -139,6 +145,48 @@ fn list_engines() -> ExitCode {
         println!("{name}");
     }
     ExitCode::SUCCESS
+}
+
+/// `worbrow fetch <url>`：抓取显式指定的 URL（ADR-009）。
+///
+/// 复用全局 `--browser`/`--timeout`/`--json`/`--retry`/`--screenshot`/`--log-level`；
+/// 子命令局部参数 `--extract`/`--max-chars`/`--no-text`。失败路径与 search 共用
+/// `finish` 语义（失败包 + 冻结退出码）。
+fn fetch_main(
+    url: &str,
+    extract: &[cli::ExtractFieldArg],
+    max_chars: usize,
+    no_text: bool,
+    cli: &Cli,
+) -> ExitCode {
+    let config = app::FetchConfig::new(url.to_owned(), cli.browser.to_kind())
+        .with_extract(extract.iter().map(|e| e.to_domain()).collect())
+        .with_max_chars(max_chars)
+        .with_text(!no_text)
+        .with_timeout(std::time::Duration::from_secs(cli.timeout))
+        .with_retry(cli.retry)
+        .with_screenshot(cli.screenshot.clone())
+        .with_dump_html(cli.dump_html.clone());
+    match app::fetch(config) {
+        Ok(page) => {
+            let body = if cli.json {
+                output::fetch_success(&page)
+            } else {
+                output::fetch_success_text(&page)
+            };
+            println!("{body}");
+            ExitCode::SUCCESS
+        }
+        Err(err) => {
+            let body = if cli.json {
+                output::failure(&err)
+            } else {
+                output::failure_text(&err)
+            };
+            println!("{body}");
+            ExitCode::from(err.exit_code() as u8)
+        }
+    }
 }
 
 /// `worbrow mcp`：以 MCP stdio server 形态运行（docs/adr/0005-mcp-stdio-server.md）。

@@ -175,6 +175,20 @@ async fn tools_list_exposes_web_search_tool() {
         props.contains_key("compact"),
         "web_search 输入应含 compact 参数（实际: {props:?}）"
     );
+    // fetch_page（ADR-009）：tools/list 暴露，输入 schema 带 url 必填
+    assert!(
+        tools.iter().any(|t| t["name"] == "fetch_page"),
+        "tools 应包含 fetch_page 工具（实际: {tools:?}）"
+    );
+    let fetch_page = tools
+        .iter()
+        .find(|t| t["name"] == "fetch_page")
+        .expect("fetch_page 工具存在");
+    let required = fetch_page["inputSchema"]["required"]
+        .as_array()
+        .cloned()
+        .unwrap_or_default();
+    assert!(required.contains(&Value::String("url".into())));
     client.kill().await;
 }
 
@@ -534,6 +548,100 @@ async fn tools_call_doctor_returns_report() {
         report.get("backends").is_some(),
         "应含 backends（实际: {report}）"
     );
+    client.kill().await;
+}
+
+/// fetch_page：fake 后端成功返回抓取成功包（ADR-009 sibling 契约，schema v1）。
+#[tokio::test]
+async fn tools_call_fetch_page_via_fake_driver() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "fetch_page",
+                "arguments": {
+                    "url": "https://example.com",
+                    "browser": "fake",
+                    "timeout": 10
+                }
+            }),
+        )
+        .await;
+    assert!(
+        resp.get("error").is_none(),
+        "fetch_page 不应有协议错误（实际: {resp}）"
+    );
+    assert_eq!(resp["result"]["isError"], serde_json::Value::Bool(false));
+    let text = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("应有文本");
+    let payload: Value = serde_json::from_str(text).expect("抓取成功包 JSON");
+    assert_eq!(payload["schema_version"], 1);
+    assert_eq!(payload["url"], "https://example.com/");
+    assert_eq!(
+        payload["meta"]["final_url"], "https://example.com/",
+        "fake 无重定向 → final_url = 请求 URL"
+    );
+    assert!(
+        !payload["text"].as_str().unwrap().is_empty(),
+        "SMOKE_HTML 正文非空（body 文本）"
+    );
+    assert_eq!(payload["extracted"], serde_json::json!({}));
+    client.kill().await;
+}
+
+/// fetch_page：非法 extract 字段 → 工具级错误（isError=true，用户可见）。
+#[tokio::test]
+async fn tools_call_fetch_page_rejects_invalid_extract() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "fetch_page",
+                "arguments": { "url": "https://example.com", "browser": "fake", "extract": ["lynx"] }
+            }),
+        )
+        .await;
+    assert!(
+        resp.get("error").is_none(),
+        "非法 extract 是工具级错误（实际: {resp}）"
+    );
+    assert_eq!(resp["result"]["isError"], true);
+    client.kill().await;
+}
+
+/// fetch_page：非法 URL（file scheme）→ 工具级错误，失败包 error.code=cli。
+#[tokio::test]
+async fn tools_call_fetch_page_rejects_invalid_url() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "fetch_page",
+                "arguments": { "url": "file:///etc/passwd", "browser": "fake" }
+            }),
+        )
+        .await;
+    assert!(
+        resp.get("error").is_none(),
+        "非法 URL 是工具级错误（实际: {resp}）"
+    );
+    assert_eq!(resp["result"]["isError"], true);
+    let text = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("应有文本");
+    let payload: Value = serde_json::from_str(text).expect("失败包 JSON");
+    assert_eq!(payload["schema_version"], 1);
+    assert_eq!(payload["error"]["code"], "cli");
     client.kill().await;
 }
 

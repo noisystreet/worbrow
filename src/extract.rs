@@ -1,6 +1,7 @@
 //! 链接归一化与文本清洗（design.md §6.5 公共工具，供各引擎适配器复用）。
 
 use base64::Engine as _;
+use scraper::{Html, Selector};
 use url::Url;
 
 use crate::domain::ResultKind;
@@ -119,6 +120,193 @@ pub fn url_origin(raw: &str) -> (String, bool) {
         ),
         Err(_) => (String::new(), false),
     }
+}
+
+// ==== 正文抓取与结构化提取（fetch_page / `worbrow fetch`，ADR-009）====
+
+/// 正文噪音元素标签：提取正文时跳过其文本（含祖先链判断）。
+const NOISE_TAGS: [&str; 10] = [
+    "script", "style", "noscript", "nav", "footer", "header", "aside", "form", "iframe", "template",
+];
+
+/// 从 HTML 提取清洗后的正文文本（尽力语义，非 Readability 级评分提取）。
+///
+/// 优先 `article`/`main` 容器，回退 `body`；跳过噪音标签（script/style/nav 等）的文本；
+/// 复用 [`clean_text`] 折叠空白，按 `max_chars` 截断。返回 `(正文, 是否截断)`。
+pub fn extract_main_text(html: &str, max_chars: usize) -> (String, bool) {
+    let doc = Html::parse_document(html);
+    let Some(root) = select_first(&doc, "article, main").or_else(|| select_first(&doc, "body"))
+    else {
+        return (String::new(), false);
+    };
+    let mut out = String::new();
+    for node in root.descendants() {
+        let Some(text) = node.value().as_text() else {
+            continue;
+        };
+        // 噪音容器（含祖先链）内的文本跳过；script/style 的 text 节点因此不会混入
+        if node.ancestors().any(|a| {
+            a.value()
+                .as_element()
+                .is_some_and(|el| NOISE_TAGS.contains(&el.name()))
+        }) {
+            continue;
+        }
+        out.push_str(text);
+        out.push(' ');
+    }
+    let cleaned = clean_text(&out);
+    if cleaned.chars().count() <= max_chars {
+        return (cleaned, false);
+    }
+    (cleaned.chars().take(max_chars).collect(), true)
+}
+
+/// 从 HTML 提取结构化字段（allowlist；缺失字段缺省，绝不编造）。
+///
+/// 提取优先级：JSON-LD（`application/ld+json`）→ meta（og:/twitter:/article:/product:）→
+/// DOM 启发式（title）。值保留 JSON 原生类型（price 字符串 / rating 数字）。
+pub fn extract_fields(
+    html: &str,
+    fields: &[crate::domain::ExtractField],
+) -> serde_json::Map<String, serde_json::Value> {
+    let doc = Html::parse_document(html);
+    let ld = parse_ld_json(&doc);
+    let mut out = serde_json::Map::new();
+    for f in fields {
+        if let Some(v) = extract_field(&doc, &ld, *f) {
+            out.insert(f.as_str().to_string(), v);
+        }
+    }
+    out
+}
+
+/// 单字段提取（返回原始 `Value`：JSON-LD 值保原生类型，meta 值为字符串）。
+fn extract_field(
+    doc: &Html,
+    ld: &[serde_json::Value],
+    f: crate::domain::ExtractField,
+) -> Option<serde_json::Value> {
+    use crate::domain::ExtractField as F;
+    match f {
+        F::Title => meta_content(
+            doc,
+            &["meta[property='og:title']", "meta[name='twitter:title']"],
+        )
+        .or_else(|| title_text(doc))
+        .map(serde_json::Value::String),
+        F::Author => meta_content(
+            doc,
+            &["meta[name='author']", "meta[property='article:author']"],
+        )
+        .or_else(|| ld_string(ld, "author"))
+        .map(serde_json::Value::String),
+        F::PublishedAt => meta_content(
+            doc,
+            &[
+                "meta[property='article:published_time']",
+                "meta[property='og:article:published_time']",
+            ],
+        )
+        .or_else(|| ld_string(ld, "datePublished"))
+        .map(serde_json::Value::String),
+        F::Price => meta_content(
+            doc,
+            &[
+                "meta[property='product:price:amount']",
+                "meta[property='og:price:amount']",
+            ],
+        )
+        .map(serde_json::Value::String)
+        .or_else(|| ld_value(ld, "price")),
+        F::Currency => meta_content(
+            doc,
+            &[
+                "meta[property='product:price:currency']",
+                "meta[property='og:price:currency']",
+            ],
+        )
+        .map(serde_json::Value::String)
+        .or_else(|| ld_string(ld, "priceCurrency").map(serde_json::Value::String)),
+        // rating 系无标准 meta，仅 JSON-LD（AggregateRating.ratingValue/bestRating/reviewCount）
+        F::Rating => ld_value(ld, "ratingValue"),
+        F::RatingMax => ld_value(ld, "bestRating"),
+        F::ReviewsCount => ld_value(ld, "reviewCount"),
+    }
+}
+
+/// 解析页面全部 JSON-LD 块（`<script type="application/ld+json">`）为 JSON 值。
+fn parse_ld_json(doc: &Html) -> Vec<serde_json::Value> {
+    let Ok(sel) = Selector::parse("script[type='application/ld+json']") else {
+        return Vec::new();
+    };
+    doc.select(&sel)
+        .filter_map(|el| {
+            el.text()
+                .collect::<String>()
+                .trim()
+                .parse::<serde_json::Value>()
+                .ok()
+        })
+        .collect()
+}
+
+/// 递归搜索 JSON-LD 中首个指定 key 的原始值（保留 JSON 原生类型）。
+fn ld_value(ld: &[serde_json::Value], key: &str) -> Option<serde_json::Value> {
+    fn find(v: &serde_json::Value, key: &str) -> Option<serde_json::Value> {
+        match v {
+            serde_json::Value::Object(map) => {
+                if let Some(v) = map.get(key) {
+                    return Some(v.clone());
+                }
+                map.values().find_map(|v| find(v, key))
+            }
+            serde_json::Value::Array(arr) => arr.iter().find_map(|v| find(v, key)),
+            _ => None,
+        }
+    }
+    ld.iter().find_map(|v| find(v, key))
+}
+
+/// JSON-LD 中首个指定 key 的字符串（对象型值取其 `name`，如 `author`）。
+fn ld_string(ld: &[serde_json::Value], key: &str) -> Option<String> {
+    ld_value(ld, key).and_then(|v| match v {
+        serde_json::Value::String(s) => Some(s),
+        serde_json::Value::Object(map) => map
+            .get("name")
+            .and_then(serde_json::Value::as_str)
+            .map(str::to_string),
+        _ => None,
+    })
+}
+
+/// 首个非空匹配 meta 的 `content`（按选择器顺序）。
+fn meta_content(doc: &Html, selectors: &[&str]) -> Option<String> {
+    for s in selectors {
+        let Ok(sel) = Selector::parse(s) else {
+            continue;
+        };
+        if let Some(el) = doc.select(&sel).next()
+            && let Some(content) = el.value().attr("content")
+            && !content.trim().is_empty()
+        {
+            return Some(clean_text(content));
+        }
+    }
+    None
+}
+
+/// `<title>` 文本（清洗后）。
+fn title_text(doc: &Html) -> Option<String> {
+    let sel = Selector::parse("title").ok()?;
+    let cleaned = clean_text(&doc.select(&sel).next()?.text().collect::<String>());
+    (!cleaned.is_empty()).then_some(cleaned)
+}
+
+/// 首个匹配选择器的元素（生命周期绑定文档）。
+fn select_first<'a>(doc: &'a Html, selector: &str) -> Option<scraper::ElementRef<'a>> {
+    let sel = Selector::parse(selector).ok()?;
+    doc.select(&sel).next()
 }
 
 /// 英文月份缩写表（供 [`extract_date`]）。
@@ -367,5 +555,87 @@ mod tests {
             result_kind("https://notfanyiso.example.com/rust"),
             ResultKind::Web
         );
+    }
+
+    /// 文章页 fixture（tests/fixtures/article.html）：main 内混入 nav/header/aside/form/
+    /// script/footer 噪音容器 + 正文段落 + JSON-LD/meta 结构化数据。
+    const ARTICLE_HTML: &str = include_str!("../tests/fixtures/article.html");
+
+    /// 正文提取：噪音容器文本被剥离，正文段落保留、空白折叠。
+    #[test]
+    fn extract_main_text_keeps_body_drops_noise() {
+        let (text, truncated) = extract_main_text(ARTICLE_HTML, 20_000);
+        assert!(!truncated, "小页面不应截断");
+        assert!(text.contains("这是第一段正文内容。"), "正文保留");
+        assert!(
+            text.contains("这是第二段正文内容，包含 多余 空白。"),
+            "空白折叠"
+        );
+        assert!(!text.contains("导航链接"), "nav 噪音剥离");
+        assert!(!text.contains("站点头部"), "header 噪音剥离");
+        assert!(!text.contains("侧边栏广告"), "aside 噪音剥离");
+        assert!(!text.contains("订阅表单"), "form 噪音剥离");
+        assert!(!text.contains("不应出现"), "script 内容剥离");
+        assert!(!text.contains("页脚版权"), "footer 噪音剥离");
+    }
+
+    /// 正文提取截断：超过 max_chars 截断并标记 truncated。
+    #[test]
+    fn extract_main_text_truncates_at_max_chars() {
+        let (text, truncated) = extract_main_text(ARTICLE_HTML, 6);
+        assert!(truncated, "超限应标记截断");
+        assert_eq!(text.chars().count(), 6, "截断到 max_chars 字符");
+    }
+
+    /// 无正文容器：返回空文本不 panic。
+    #[test]
+    fn extract_main_text_empty_page() {
+        let (text, truncated) = extract_main_text("<html><head></head><body></body></html>", 100);
+        assert_eq!(text, "");
+        assert!(!truncated);
+    }
+
+    /// 字段提取：meta 优先（title/author/published_at/price/currency），
+    /// rating 系走 JSON-LD 且保留原生数字类型。
+    #[test]
+    fn extract_fields_prefers_meta_and_keeps_json_ld_types() {
+        use crate::domain::ExtractField as F;
+        let fields = extract_fields(ARTICLE_HTML, &F::ALL);
+        assert_eq!(fields["title"], "示例商品页面", "og:title 优先于 <title>");
+        assert_eq!(fields["author"], "张三", "meta author");
+        assert_eq!(
+            fields["published_at"], "2026-07-20T10:00:00Z",
+            "article:published_time"
+        );
+        assert_eq!(fields["price"], "1299.00", "meta price 为字符串");
+        assert_eq!(fields["currency"], "CNY");
+        assert_eq!(fields["rating"], 4.6, "JSON-LD rating 保数字类型");
+        assert_eq!(fields["rating_max"], 5);
+        assert_eq!(fields["reviews_count"], 1203);
+    }
+
+    /// 字段提取：无 meta 时回退 JSON-LD（author 对象取 name），缺失字段不出现。
+    #[test]
+    fn extract_fields_falls_back_to_json_ld_and_omits_missing() {
+        use crate::domain::ExtractField as F;
+        let html = r#"<html><head>
+            <script type="application/ld+json">{"@type":"Article","author":{"@type":"Person","name":"李四"},"datePublished":"2026-07-21","offers":{"price":99.5,"priceCurrency":"USD"}}</script>
+        </head><body><title>无 meta 页面</title></body></html>"#;
+        let fields = extract_fields(html, &[F::Author, F::PublishedAt, F::Price, F::Rating]);
+        assert_eq!(fields["author"], "李四", "JSON-LD 对象取 name");
+        assert_eq!(fields["published_at"], "2026-07-21");
+        assert_eq!(fields["price"], 99.5, "JSON-LD price 数字保原生类型");
+        assert!(
+            !fields.contains_key("rating"),
+            "页面无 rating 字段 → 不出现、不编造"
+        );
+    }
+
+    /// 字段提取：全字段缺失 → 空对象。
+    #[test]
+    fn extract_fields_empty_when_nothing_found() {
+        use crate::domain::ExtractField as F;
+        let fields = extract_fields("<html><body>plain</body></html>", &[F::Price, F::Rating]);
+        assert!(fields.is_empty());
     }
 }

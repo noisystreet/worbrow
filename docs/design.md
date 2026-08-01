@@ -81,6 +81,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-006](adr/0006-lib-api-surface.md) | 库 API 公开面 = 类型级顶层 re-export（外部消费者） | 已接受 |
 | [ADR-007](adr/0007-mcp-session-pool.md) | MCP 会话池化（浏览器进程复用 + 空闲 TTL 回收） | 已接受 |
 | [ADR-008](adr/0008-retry-and-cache.md) | 网络重试与结果缓存（`--retry` / MCP 短 TTL 缓存） | 已接受 |
+| [ADR-009](adr/0009-fetch-page.md) | 正文抓取与结构化提取（`fetch_page` / `worbrow fetch`） | 已接受 |
 
 ---
 
@@ -179,10 +180,12 @@ clap derive 定义参数（示意）：
 | `--retry` | usize | 0 | 瞬时网络错误重试次数（指数退避封顶 8s，计入 timeout；ADR-008） |
 | `--connect <cdp-url>` | url | 无 | 连接已运行浏览器（V2 性能演进） |
 
-子命令：`worbrow doctor`（环境自检，§10）、`worbrow list`（列出引擎）。
+子命令：`worbrow doctor`（环境自检，§10）、`worbrow list`（列出引擎）、
+`worbrow fetch <url>`（正文抓取 + 结构化提取，ADR-009，§7.1 fetch 包）。
 
-`main.rs` 职责：初始化 tracing（仅 stderr）→ 子命令分发 → `app::run` →
-输出 JSON 包并映射退出码。任何 panic 由顶层 `catch_unwind` 兜底转成 `exit(1)` 并输出错误 JSON。
+`main.rs` 职责：初始化 tracing（仅 stderr）→ 子命令分发 → `app::run`（搜索）或
+`app::fetch`（抓取）→ 输出 JSON 包并映射退出码。任何 panic 由顶层 `catch_unwind`
+兜底转成 `exit(1)` 并输出错误 JSON。
 
 ### 6.2 用例编排层（`app.rs`）
 
@@ -206,6 +209,20 @@ run_with(&mut driver, config)     # MCP：从会话池 acquire → run_with → 
  9. 可选 screenshot；driver 生命周期：CLI Drop 即回收；MCP 归还池（TTL/健康判定
     由池管理，见 §8）
 10. 组装 Outcome{results, meta（engine=最终引擎，engine_tried=尝试链）} → output 序列化
+```
+
+**fetch 用例（ADR-009，`app::fetch`/`run_fetch`/`run_fetch_with`，镜像 run 三入口）**：
+
+```
+ 1. URL 校验前置（非法 URL → Error::Cli/exit 2，不启动浏览器；scheme 白名单 http/https，
+    缺 scheme 自动补 https://，去 fragment）
+ 2. 全局 timeout 包裹（默认 60s）+ 仅 Error::Network 退避重试（--retry，同 search 语义）
+ 3. 导航 → wait_load（eval 轮询 document.readyState == "complete"，尽力语义：预算耗尽/
+    eval 失败不报错，导航成功即成功包）→ html() → eval("location.href") 取 final_url
+ 4. 提取：extract_main_text（article/main 回退 body，剥噪音容器，max_chars 截断，
+    text=false 跳过）+ extract_fields（JSON-LD → meta → DOM，allowlist，缺失缺省）
+ 5. 组装 FetchedPage{url, fetched_at, text, extracted, elapsed_ms, chars, truncated,
+    final_url} → output::fetch_success 序列化（fetch 包，schema v1 sibling）
 ```
 
 ### 6.3 领域模型（`domain.rs`）
@@ -347,6 +364,27 @@ pub trait SearchProvider: Send + Sync {
 { "schema_version": 1, "error": { "code": "timeout", "message": "…", "detail": "…" } }
 ```
 
+**fetch 成功包（`worbrow fetch` / MCP `fetch_page`，ADR-009）**：新 sibling 契约，
+与 search 包同 `schema_version`；对既有客户端无感（agent 按子命令/工具区分包形状）：
+
+```json
+{
+  "schema_version": 1,
+  "url": "https://example.com/…",
+  "fetched_at": "2026-08-01T08:00:00Z",
+  "text": "清洗后的正文…",
+  "extracted": { "price": "1299.00", "rating": 4.6, "currency": "CNY" },
+  "meta": { "elapsed_ms": 1200, "chars": 18423, "truncated": false, "final_url": "https://example.com/…" }
+}
+```
+
+- `text`：清洗后正文（`--no-text`/`text=false` 时为空串）；`meta.truncated` 由 `max_chars` 截断触发
+- `extracted`：allowlist 字段（title/author/published_at/price/currency/rating/rating_max/
+  reviews_count），缺失字段缺省、绝不编造；值保留 JSON 原生类型
+- `meta.final_url`：重定向落地页（`eval("location.href")`）
+- 已知行为：HTTP 4xx/5xx/验证码/404 页导航成功即成功包（正文可能为空或错误页文本），
+  v1 不检测 HTTP 状态码；SPA/懒加载内容可能缺失（尽力语义）
+
 版本策略：`schema_version` 主版本号，字段**只增不改**；破坏性变更 bump 主版本（agent 端
 显式校验并告警）。新增字段对旧 agent 无感。
 
@@ -394,8 +432,13 @@ pub trait SearchProvider: Send + Sync {
   目标站点风控可能仍拦截。
 - **目标域白名单**：仅允许访问已注册引擎的域名（防 SSRF 面）；重定向链中若离开引擎域，
   记录并截断（v1 行为：记录 + 保留重定向目标 URL 本身）。
-- **合规提醒**：遵守目标引擎 ToS 与 robots.txt；仅抓取摘要（snippet），不盗用整页正文；
-  本工具定位是"搜索辅助"，不是规避风控的爬虫。此提醒写入 README 与 `--help` 中 `--engine list` 说明。
+- **合规提醒**：遵守目标引擎 ToS 与 robots.txt；搜索路径仅抓取摘要（snippet），不盗用
+  整页正文；本工具定位是"搜索辅助"，不是规避风控的爬虫。此提醒写入 README 与 `--help`
+  中 `--engine list` 说明。
+- **fetch 合规划界（ADR-009）**：`worbrow fetch`/MCP `fetch_page` 是**用户显式发起**的
+  整页抓取（等价用户自己点开链接），与搜索爬虫的 snippet-only 政策是**两条独立路径**；
+  只抓 agent 显式传入的 URL、scheme 白名单 http/https、不做批量抓取；频率纪律
+  （≥2s/请求）仍适用；可访问本机/内网（等价本机浏览器），工具描述与 README 明示。
 
 ---
 
@@ -466,7 +509,9 @@ CI 不依赖真实浏览器，保证可复现。
 - **V1（MVP，已完成，v0.1.0）**：DuckDuckGo/Bing 引擎 + Marionette 后端（Firefox）
   与 CDP 后端（Chrome/Edge）均已完成；`--json`/超时/验证码检测/截图/`worbrow doctor`
   已就绪；MCP stdio server（`worbrow mcp`，rmcp 2.2，见 ADR-005）已完成；库公开面
-  收敛为类型级顶层 API（ADR-006），可作为库供外部消费
+  收敛为类型级顶层 API（ADR-006），可作为库供外部消费；正文抓取与结构化提取
+  （`worbrow fetch` / MCP `fetch_page`，ADR-009）已完成——agent 从"搜到链接"到
+  "读内容、比字段"一步到位
 - **V2**：百度、Google（预期高拦截，降级为"尽力"）；`--connect` 连接常驻浏览器复用会话；
   结果去重归一化加强；新增 `--retry`（瞬时网络错误重试）；若需网络拦截等深度控制，
   引入 chromiumoxide 作第二 CDP 实现

@@ -46,10 +46,13 @@
 
 pub mod app;
 pub(crate) mod domain;
-pub use app::{BackendStatus, Config, DoctorReport, Outcome, run, search};
+pub use app::{
+    BackendStatus, Config, DoctorReport, FetchConfig, Outcome, fetch, run, run_fetch, search,
+};
 pub use domain::{
-    BrowserKind, DEFAULT_BROWSER, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS,
-    EngineError, Freshness, ResultKind, SafesearchLevel, SearchMeta, SearchQuery, SearchResult,
+    BrowserKind, DEFAULT_BROWSER, DEFAULT_ENGINE, DEFAULT_MAX_CHARS, DEFAULT_MAX_RESULTS,
+    DEFAULT_TIMEOUT_SECS, EngineError, ExtractField, FetchedPage, Freshness, ResultKind,
+    SafesearchLevel, SearchMeta, SearchQuery, SearchResult,
 };
 pub mod drivers;
 pub mod engines;

@@ -121,6 +121,88 @@ pub struct SearchMeta {
     pub retries: usize,
 }
 
+/// 正文抓取默认截断上限（字符；`worbrow fetch`/MCP `fetch_page` 的 `max_chars` 默认值）。
+pub const DEFAULT_MAX_CHARS: usize = 20_000;
+
+/// 结构化字段提取 allowlist（`fetch_page` 的 `extract` 参数；枚举只增不改）。
+///
+/// 提取发生在目标页（JSON-LD → meta → DOM 启发式，见 `extract::extract_fields`）；
+/// 缺失字段缺省、绝不编造。输出键名 = [`ExtractField::as_str`]（稳定 snake_case）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ExtractField {
+    Title,
+    Author,
+    PublishedAt,
+    Price,
+    Currency,
+    Rating,
+    RatingMax,
+    ReviewsCount,
+}
+
+impl ExtractField {
+    /// 完整字段集（allowlist；新增字段 = 追加变体 + 注册此处，向后兼容）。
+    pub const ALL: [Self; 8] = [
+        Self::Title,
+        Self::Author,
+        Self::PublishedAt,
+        Self::Price,
+        Self::Currency,
+        Self::Rating,
+        Self::RatingMax,
+        Self::ReviewsCount,
+    ];
+
+    /// 输出键名（稳定 snake_case；`extracted` 对象的 key）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Title => "title",
+            Self::Author => "author",
+            Self::PublishedAt => "published_at",
+            Self::Price => "price",
+            Self::Currency => "currency",
+            Self::Rating => "rating",
+            Self::RatingMax => "rating_max",
+            Self::ReviewsCount => "reviews_count",
+        }
+    }
+
+    /// 从 CLI/MCP 参数值解析（大小写不敏感；接受别名）。
+    pub fn from_arg(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "title" => Some(Self::Title),
+            "author" => Some(Self::Author),
+            "published_at" | "published" | "date" => Some(Self::PublishedAt),
+            "price" => Some(Self::Price),
+            "currency" => Some(Self::Currency),
+            "rating" => Some(Self::Rating),
+            "rating_max" | "best_rating" | "bestrating" => Some(Self::RatingMax),
+            "reviews_count" | "reviews" | "reviewcount" => Some(Self::ReviewsCount),
+            _ => None,
+        }
+    }
+}
+
+/// 单次正文抓取结果（DTO，`fetch_page`/`worbrow fetch` 成功包的数据源）。
+#[derive(Debug, Clone, Serialize)]
+pub struct FetchedPage {
+    /// 请求 URL（归一化后：补全 scheme、去 fragment）。
+    pub url: String,
+    pub fetched_at: DateTime<Utc>,
+    /// 清洗后正文（`text=false` 时为空串）。
+    pub text: String,
+    /// 提取的结构化字段（键 = `ExtractField::as_str`；缺失字段不出现，值保留 JSON 原生类型）。
+    pub extracted: serde_json::Map<String, serde_json::Value>,
+    /// 实际耗时（ms）。
+    pub elapsed_ms: u64,
+    /// 正文字符数（`text=false` 时为 0）。
+    pub chars: usize,
+    /// 是否因 `max_chars` 截断。
+    pub truncated: bool,
+    /// 重定向落地页（导航后 `location.href`；与请求 URL 不同即发生了重定向）。
+    pub final_url: Option<String>,
+}
+
 /// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；零依赖纯枚举）。
 /// `Serialize` 供 `doctor` 工具输出（lowercase，与 CLI 参数一致）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
@@ -316,5 +398,33 @@ mod tests {
         );
         // 原始 text 保留（site/filetype 只在引擎发送时追加）
         assert_eq!(q.text, "rust async");
+    }
+
+    #[test]
+    fn extract_field_parse_and_keys() {
+        // from_arg：大小写不敏感 + 别名
+        assert_eq!(ExtractField::from_arg("price"), Some(ExtractField::Price));
+        assert_eq!(ExtractField::from_arg("PRICE"), Some(ExtractField::Price));
+        assert_eq!(
+            ExtractField::from_arg("published_at"),
+            Some(ExtractField::PublishedAt)
+        );
+        assert_eq!(
+            ExtractField::from_arg("date"),
+            Some(ExtractField::PublishedAt)
+        );
+        assert_eq!(
+            ExtractField::from_arg("rating_max"),
+            Some(ExtractField::RatingMax)
+        );
+        assert_eq!(ExtractField::from_arg("lynx"), None);
+        assert_eq!(ExtractField::from_arg(""), None);
+        // 输出键名稳定（extracted 对象 key）
+        assert_eq!(ExtractField::PublishedAt.as_str(), "published_at");
+        assert_eq!(ExtractField::ReviewsCount.as_str(), "reviews_count");
+        // allowlist 完整集与键一一对应
+        for f in ExtractField::ALL {
+            assert_eq!(ExtractField::from_arg(f.as_str()), Some(f));
+        }
     }
 }

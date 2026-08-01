@@ -17,20 +17,29 @@ use crate::ports::BrowserDriver;
 pub const SMOKE_HTML: &str = include_str!("../../tests/fixtures/bing.html");
 
 /// 固定返回预设 HTML 的假驱动。
+///
+/// `eval` 模拟真实浏览器语义：`document.readyState` 返回 `complete`（fetch 等待加载
+/// 立即通过）、`location.href` 返回最近导航 URL（fetch `final_url`）；其余 JS 返回 Null。
 #[derive(Debug, Default)]
 pub struct FakeDriver {
     html: String,
+    /// 最近一次 navigate 的 URL（供 `location.href` eval）。
+    current_url: Option<String>,
 }
 
 impl FakeDriver {
     pub fn with_html(html: impl Into<String>) -> Self {
-        Self { html: html.into() }
+        Self {
+            html: html.into(),
+            current_url: None,
+        }
     }
 }
 
 #[async_trait]
 impl BrowserDriver for FakeDriver {
-    async fn navigate(&mut self, _url: Url) -> Result<(), Error> {
+    async fn navigate(&mut self, url: Url) -> Result<(), Error> {
+        self.current_url = Some(url.to_string());
         Ok(())
     }
 
@@ -42,7 +51,15 @@ impl BrowserDriver for FakeDriver {
         Ok(self.html.clone())
     }
 
-    async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+    async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error> {
+        if js.contains("readyState") {
+            return Ok(serde_json::Value::String("complete".into()));
+        }
+        if js.contains("location.href") {
+            return Ok(serde_json::Value::String(
+                self.current_url.clone().unwrap_or_default(),
+            ));
+        }
         Ok(serde_json::Value::Null)
     }
 

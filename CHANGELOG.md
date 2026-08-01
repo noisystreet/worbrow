@@ -6,6 +6,14 @@
 
 ### Added
 
+- **正文抓取与结构化提取（P1，ADR-009）**：新增 `worbrow fetch <url>` 子命令与 MCP
+  `fetch_page` 工具——抓取 **agent 显式传入** 的 URL（scheme 白名单 http/https，缺
+  scheme 自动补 `https://`，非法 URL → exit 2），复用浏览器会话返回清洗后正文
+  （`max-chars` 截断默认 20000，`meta.truncated`/`final_url` 标记）与可选结构化字段
+  （`extract` allowlist：title/author/published_at/price/currency/rating/rating_max/
+  reviews_count，JSON-LD → meta → DOM 提取，缺失缺省不编造，值保留原生类型）；
+  `--no-text` 只要字段省 token；新 sibling fetch 成功包（schema v1 同版本），search
+  成功/失败包零变化，新工具对既有客户端无感
 - **质量信号扩展（P2）**：降级判定叠加 **web 占比阈值**（结果集中内容型占比 < 50%
   视为同质化低质，多义混入自动尝试下一引擎）；翻页聚合新增**同域名去重**（同一
   域名最多保留 2 条，rank 靠前优先，防单一来源刷屏；`site:` 过滤时用户意图为同域，
