@@ -1,0 +1,128 @@
+# worbrow 库 API 规划（面向外部消费者）
+
+> 读者：项目维护者 / 贡献者。状态：**规划草案**，随实施更新；落地决策按 AGENTS.md 记 ADR。
+> 本文聚焦「作为库提供给外部使用」，架构权威见 [design.md](design.md)，公开面决策见 [ADR-006](adr/0006-lib-api-surface.md)。
+
+## 1. 背景与现状
+
+worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`/`drivers`/`engines`/
+`error`/`mcp`/`output`/`ports` 八个模块，**公开面是按模块粒度**为 bin 与集成测试服务的，
+并非为外部库消费者设计。
+
+作为库消费已具备的骨架（P0–P2 重构产物）：
+
+- `app::Config::new` + builder（`with_max_results`/`with_timeout`/`with_screenshot`/`with_dump_html`/`with_driver`）
+- `app::run_sync`（同步入口，内部管 runtime）/ `app::run`（async，复用外部 runtime）
+- `app::DoctorReport::collect()` 环境自检
+- `output::success/failure` 契约序列化、`error::Error`（含 `exit_code`/`code_str`/`detail`）
+- `domain::DEFAULT_*` 常量、`drivers::BrowserKind::from_arg`
+
+### 现状障碍（详见 [ADR-006](adr/0006-lib-api-surface.md)）
+
+1. `EngineError` 未 re-export：`SearchMeta.engine_error` 字段类型外部**无法命名**
+2. `Outcome.results` 用 `crate::domain::SearchResult` 内部路径
+3. 公开面过宽：`cli`（clap 参数）、`drivers::{cdp, marionette, jsonrpc, discovery, fake}`、
+   `engines::{bing, duckduckgo}` 等实现细节全部 pub，把"多变点"固化为稳定契约
+4. `BrowserKind` 挂在 `drivers` 下（它是配置参数，不是驱动实现）
+5. 外部自定义引擎无法注册（`engines::resolve` 固定 match，无扩展点）
+6. `default = ["mcp"]` 使库消费者被强制拉入 rmcp 依赖树
+7. `Error` 无 `#[source]`，底层错误被字符串化
+8. 输出契约为函数拼 String，无类型化契约包（`schema_version` 不是一等公民）
+
+## 2. 目标与非目标
+
+### 目标
+
+1. 外部 Rust 消费者 **3 行内**完成一次搜索（顶层 re-export，无需跨模块拼装）
+2. 公开面**类型级稳定**：稳定的是 `Config`/`Outcome`/`SearchResult`/`SearchMeta`/
+   `Error`/trait 与 `DEFAULT_*`，不是模块树
+3. 适配器多变点对外不可见：新增驱动/引擎不破坏公开面
+4. 外部可插拔：自定义引擎/驱动能接入 `app` 编排，不必复制 `run` 逻辑
+5. 库消费可选功能按需启用（`default-features = false` 即最小依赖）
+
+### 非目标（明确不做）
+
+- **拆多 crate workspace**（lib + bin 分 crate）：单 crate 模块化单体仍合理，拆分增加
+  发布与依赖编排复杂度（见 [ADR-006](adr/0006-lib-api-surface.md) 备选）
+- **暴露驱动/引擎实现细节**给外部扩展（jsonrpc 协议框架、具体引擎解析器保持内部）
+- **HTTP 常驻服务**等新形态（留待 design.md §13 V3，按需求单独评估）
+- **为 0.x 提供完整 semver 承诺**：公开面冻结后 0.1 正式发布，0.x 破坏变更须 bump
+  minor + CHANGELOG
+
+## 3. 方向与优先级
+
+### P0：公开面补漏（小改动，先行）
+
+| 项 | 内容 |
+|---|---|
+| `EngineError` re-export | `lib.rs` 补 `pub use domain::EngineError`，解决 `SearchMeta.engine_error` 类型不可命名 |
+| `Outcome` 字段路径 | `results: Vec<crate::domain::SearchResult>` → re-export 路径 |
+| 验证 | `cargo doc` 无警告；新增"外部视角"集成测试（`tests/lib_api.rs`，仅用顶层/公开类型编译） |
+
+### P1：公开面收敛 + 顶层 re-export（核心）
+
+| 项 | 内容 |
+|---|---|
+| 顶层 re-export | `worbrow::{Config, BrowserKind, Outcome, DoctorReport, Error, search, run, run_sync, DEFAULT_*, SearchQuery, SearchResult, SearchMeta, EngineError}` |
+| `pub(crate)` 化实现细节 | `cli`（参数结构保留给 bin，`pub(crate)`）、`drivers::{cdp, marionette, jsonrpc, discovery, fake}`、`engines::{bing, duckduckgo}`；保留 `drivers::resolve/BrowserKind`、`engines::resolve/AVAILABLE` 为内部服务公开面 |
+| `BrowserKind` 归位 | 从 `drivers` 上移为顶层配置类型（内部实现仍留在 `drivers`） |
+| 引擎扩展点 | `Config::with_provider(Box<dyn SearchProvider>)`（对齐 `with_driver` 风格），`app::run` 优先使用注入的 provider |
+| `Error` source chain | `EngineFailure` 等内嵌错误补 `#[source]`，外部 `anyhow`/自定义错误可下钻 |
+
+### P2：库消费体验完善
+
+| 项 | 内容 |
+|---|---|
+| 类型化契约包 | `output::SuccessPacket`/`FailurePacket`（`Serialize`，含 `schema_version`），CLI 仅渲染，库消费者直接 `serde_json` |
+| rustdoc 示例 | `lib.rs` 顶层 + 核心类型 quickstart doc-test；`examples/`（根目录）加可运行示例 |
+| feature 文档化 | `mcp` 默认启用仅服务 CLI；文档明示库消费 `default-features = false`；`clap`/`tempfile` 等 CLI 专属依赖逐步 feature 化 |
+| 版本语义 | README/CONTRIBUTING 明确 0.x 公开面冻结与变更流程 |
+
+## 4. 目标 API 形态（P1 完成后）
+
+```rust
+// 外部消费者（Cargo.toml: worbrow = { version = "0.1", default-features = false }）
+use worbrow::{BrowserKind, Config, search};
+
+fn main() -> Result<(), worbrow::Error> {
+    let outcome = search(Config::new("rust async", "bing", BrowserKind::Firefox)
+        .with_max_results(5))?;
+    for r in &outcome.results {
+        println!("{} - {}", r.rank, r.title);
+    }
+    Ok(())
+}
+```
+
+自定义引擎（无需复制 `run` 编排）：
+
+```rust
+struct MyEngine; // impl worbrow::SearchProvider
+let config = Config::new("q", "myengine", BrowserKind::Firefox)
+    .with_provider(Box::new(MyEngine));
+let outcome = worbrow::run_sync(config)?;
+```
+
+## 5. 实施顺序
+
+P0 补漏 → P1 收敛 + re-export + 引擎扩展点 → P2 体验完善
+
+- 每步独立可验证、可回退；同步 `cargo doc` 检查、README、CHANGELOG
+- `tests/lib_api.rs`（外部视角集成测试）作为公开面回归门禁，随 P0 建立
+- 不承诺时间；公开面取舍以 [ADR-006](adr/0006-lib-api-surface.md) 为准，变更须记新 ADR
+
+## 6. 契约与约束（贯穿全程）
+
+- 输出契约 `schema_version` 只增不改（[AGENTS.md](../AGENTS.md) 硬约束 3），本规划不触碰
+- 退出码语义冻结、stdout 仅 JSON（CLI 形态不变）
+- 依赖方向不变：`cli → app → domain/ports ← adapters`；`pub(crate)` 化不改变分层
+- 安全红线：不写密钥、不自动访问第三方 URL
+
+## 7. 开放决策
+
+1. `BrowserKind` 上移后 `drivers::BrowserKind` 保留 pub 别名还是彻底迁移 → 倾向彻底迁移
+   （单一概念单一位置），迁移期 `tests/` 同步
+2. `engines::resolve` 是否同时保留（内置引擎走注册表）与 `with_provider` 并存 →
+   倾向并存：内置走注册表，外部走注入，二者在 `run` 内合并解析
+3. `cli` 模块 `pub(crate)` 后，`clap` 依赖是否 feature 化（`cli = ["dep:clap"]`）→
+   倾向 P2 做，P1 仅收敛可见性
