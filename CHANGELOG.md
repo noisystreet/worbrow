@@ -6,6 +6,10 @@
 
 ### Added
 
+- **MCP 体验完善（P1）**：`web_search` 新增 `compact` 精简模式（结果仅 rank/title/url，
+  省 agent 上下文 token，meta 完整；缓存命中路径同样生效）；新增 `list_engines` 工具
+  （列出可用引擎）与 `doctor` 工具（环境自检：浏览器二进制/版本/引擎注册表）——
+  输出 schema v1 不变，新工具对既有客户端无感
 - **网络重试与结果缓存（P1，ADR-008）**：`--retry <n>`（CLI）/`retry`（MCP，封顶 5）
   对瞬时网络错误指数退避重试（2^(n-1) 秒封顶 8s，计入全局超时预算；验证码/参数错/
   超时不重试）；MCP 长驻进程内相同请求参数 60s TTL 缓存命中直接返回（`meta.cached`），
