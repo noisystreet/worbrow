@@ -6,8 +6,11 @@
 
 ### Added
 
-- **库 API**：`app::run_sync`（同步搜索入口，内部管理 tokio runtime）与
-  `app::DoctorReport`/`BackendStatus`（结构化环境自检）；CLI 改为薄封装
+- **库 API 完善**：`app::run_sync`（同步搜索入口，内部管理 tokio runtime）、
+  `app::DoctorReport`/`BackendStatus`（结构化环境自检）、`Config::new` + builder
+  （`with_max_results`/`with_timeout`/`with_screenshot`/`with_dump_html`/`with_driver`）、
+  `BrowserKind::from_arg`（浏览器参数单一解析源）、`domain::DEFAULT_*` 默认值常量
+  （CLI/MCP 单源）、失败包 `detail` 填充引擎错误码；CLI 改为薄封装
   （参数解析 + 渲染，业务逻辑下沉库层）
 
 ### Changed

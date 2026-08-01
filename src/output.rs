@@ -49,7 +49,7 @@ pub fn failure(err: &Error) -> String {
         error: ErrorBody {
             code: err.code_str(),
             message: &err.to_string(),
-            detail: None,
+            detail: err.detail(),
         },
     })
     .expect("序列化错误包不应失败")
@@ -112,6 +112,15 @@ mod tests {
         let err = Error::Timeout("x".into());
         let parsed: serde_json::Value = serde_json::from_str(&failure(&err)).unwrap();
         assert_eq!(parsed["error"]["code"], "timeout");
+        assert_eq!(parsed["error"]["detail"], serde_json::Value::Null);
+    }
+
+    #[test]
+    fn failure_detail_contains_engine_code() {
+        let err = Error::Engine(crate::error::EngineFailure::new("no_results", "页面无结果"));
+        let parsed: serde_json::Value = serde_json::from_str(&failure(&err)).unwrap();
+        assert_eq!(parsed["error"]["code"], "parse");
+        assert_eq!(parsed["error"]["detail"], "no_results");
     }
 
     #[test]
