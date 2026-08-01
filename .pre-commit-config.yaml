@@ -3,7 +3,8 @@
 #   pre-commit install
 #   pre-commit install --hook-type commit-msg
 # 手动：pre-commit run --all-files
-# rustfmt/clippy/test/deny/machete 由 Makefile 与 CI 承担（见 .github/workflows/ci.yml），
+# rustfmt 与 clippy 以 local hook 在提交前执行（增量编译后开销可控）；
+# test/deny/machete 偏慢，由 Makefile 与 CI 承担（见 .github/workflows/ci.yml），
 # 避免把慢检查与镜像网络依赖塞进每次提交钩子。
 repos:
   - repo: https://github.com/pre-commit/pre-commit-hooks
@@ -24,3 +25,19 @@ repos:
     hooks:
       - id: conventional-pre-commit
         stages: [commit-msg]
+
+  # Rust 质量门禁（仅改动 .rs 文件时触发；增量编译后开销可控）
+  - repo: local
+    hooks:
+      - id: cargo-fmt
+        name: cargo fmt --check
+        entry: cargo fmt --check
+        language: system
+        pass_filenames: false
+        types: [rust]
+      - id: cargo-clippy
+        name: cargo clippy (all targets/features, -D warnings)
+        entry: cargo clippy --all-targets --all-features -- -D warnings
+        language: system
+        pass_filenames: false
+        types: [rust]
