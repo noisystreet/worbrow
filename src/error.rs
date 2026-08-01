@@ -131,4 +131,12 @@ mod tests {
             assert_eq!(err.code_str(), expected, "错误: {err:?}");
         }
     }
+
+    /// source chain（P1 复核）：`#[from]` 字段自动作为 source，外部错误可下钻。
+    #[test]
+    fn engine_variant_exposes_source_chain() {
+        let err = Error::Engine(EngineFailure::new("no_results", "x"));
+        let source = std::error::Error::source(&err).expect("Engine 变体应有 source");
+        assert_eq!(source.to_string(), "x (code: no_results)");
+    }
 }

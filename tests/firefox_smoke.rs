@@ -6,7 +6,8 @@ use std::process::Command;
 use std::time::Duration;
 
 use url::Url;
-use worbrow::drivers::marionette::MarionetteDriver;
+use worbrow::BrowserKind;
+use worbrow::drivers;
 use worbrow::error::Error;
 
 /// 统计本工具启动的 Firefox（按临时 profile 路径特征隔离，避免与其他测试/系统进程互相干扰）。
@@ -29,7 +30,7 @@ fn firefox_count() -> usize {
 async fn spawn_then_drop_kills_firefox() {
     let before = firefox_count();
     {
-        let _driver = MarionetteDriver::spawn()
+        let _driver = drivers::resolve(BrowserKind::Firefox)
             .await
             .expect("spawn 应成功（需要本机 Firefox）");
         tokio::time::sleep(Duration::from_secs(1)).await;
@@ -51,7 +52,7 @@ async fn spawn_then_drop_kills_firefox() {
 #[tokio::test]
 #[ignore = "需要本机 Firefox"]
 async fn end_to_end_on_data_url() {
-    let mut driver = MarionetteDriver::spawn()
+    let mut driver = drivers::resolve(BrowserKind::Firefox)
         .await
         .expect("spawn 应成功（需要本机 Firefox）");
 
@@ -92,7 +93,7 @@ async fn end_to_end_on_data_url() {
 #[tokio::test]
 #[ignore = "需要本机 Firefox"]
 async fn wait_for_missing_selector_times_out() {
-    let mut driver = MarionetteDriver::spawn()
+    let mut driver = drivers::resolve(BrowserKind::Firefox)
         .await
         .expect("spawn 应成功（需要本机 Firefox）");
 
@@ -112,7 +113,10 @@ async fn wait_for_missing_selector_times_out() {
 #[tokio::test]
 #[ignore = "需要本机 Firefox"]
 async fn concurrent_spawns_use_distinct_ports() {
-    let (a, b) = tokio::join!(MarionetteDriver::spawn(), MarionetteDriver::spawn());
+    let (a, b) = tokio::join!(
+        drivers::resolve(BrowserKind::Firefox),
+        drivers::resolve(BrowserKind::Firefox)
+    );
     assert!(a.is_ok(), "实例 A 应成功（端口冲突或启动失败）");
     assert!(b.is_ok(), "实例 B 应成功（端口冲突或启动失败）");
 }
@@ -121,7 +125,7 @@ async fn concurrent_spawns_use_distinct_ports() {
 #[tokio::test]
 #[ignore = "需要本机 Firefox"]
 async fn navigate_invalid_url_errors_instead_of_hanging() {
-    let mut driver = MarionetteDriver::spawn()
+    let mut driver = drivers::resolve(BrowserKind::Firefox)
         .await
         .expect("spawn 应成功（需要本机 Firefox）");
     let result = tokio::time::timeout(

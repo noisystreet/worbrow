@@ -6,24 +6,54 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use url::Url;
+use worbrow::BrowserKind;
 use worbrow::app::{self, Config};
-use worbrow::drivers::{BrowserKind, fake::FakeDriver};
 use worbrow::error::Error;
 use worbrow::ports::BrowserDriver;
 
 const FIXTURE: &str = include_str!("fixtures/duckduckgo.html");
 
-fn config(query: &str) -> Config {
-    Config {
-        query: query.to_string(),
-        engine: "duckduckgo".to_string(),
-        browser: BrowserKind::Fake,
-        max_results: 5,
-        timeout: Duration::from_secs(5),
-        screenshot: None,
-        dump_html: None,
-        driver: Some(Box::new(FakeDriver::with_html(FIXTURE))),
+/// 本地假驱动：返回注入的 fixture HTML（`drivers::fake` 已内部化，外部测试自实现；
+/// 行为与内部 FakeDriver 一致）。
+#[derive(Debug)]
+struct FixtureDriver {
+    html: String,
+}
+
+impl FixtureDriver {
+    fn new(html: impl Into<String>) -> Self {
+        Self { html: html.into() }
     }
+}
+
+#[async_trait]
+impl BrowserDriver for FixtureDriver {
+    async fn navigate(&mut self, _url: Url) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn wait_for(&mut self, _selector: &str, _timeout: Duration) -> Result<(), Error> {
+        Ok(())
+    }
+
+    async fn html(&self) -> Result<String, Error> {
+        Ok(self.html.clone())
+    }
+
+    async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+        Ok(serde_json::Value::Null)
+    }
+
+    async fn screenshot(&mut self, _path: &Path) -> Result<(), Error> {
+        Ok(())
+    }
+}
+
+fn config(query: &str) -> Config {
+    Config::new(query, "duckduckgo", BrowserKind::Fake)
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(5))
+        .with_driver(Box::new(FixtureDriver::new(FIXTURE)))
 }
 
 #[tokio::test]
@@ -67,7 +97,7 @@ async fn captcha_html_yields_captcha_flag() {
     // 验证码特征词存在但仍有结果：标记 captcha=true，不中止
     let html = format!("<html>anomaly<body>{FIXTURE}</body></html>");
     let mut cfg = config("rust");
-    cfg.driver = Some(Box::new(FakeDriver::with_html(html)));
+    cfg.driver = Some(Box::new(FixtureDriver::new(html)));
     let outcome = app::run(cfg).await.expect("应成功");
     assert!(outcome.meta.captcha);
     assert!(!outcome.results.is_empty());

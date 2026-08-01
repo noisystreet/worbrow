@@ -10,11 +10,10 @@ use chrono::Utc;
 use tokio::time::timeout;
 
 use crate::SearchResult;
-use crate::domain::{SearchMeta, SearchQuery};
-use crate::drivers::BrowserKind;
+use crate::domain::{BrowserKind, SearchMeta, SearchQuery};
 use crate::engines;
 use crate::error::Error;
-use crate::ports::BrowserDriver;
+use crate::ports::{BrowserDriver, SearchProvider};
 
 /// 低结果阈值：结果数低于该值时 `meta.low_yield = true`（design.md §10.4）。
 pub const LOW_YIELD_THRESHOLD: usize = 3;
@@ -32,6 +31,8 @@ pub struct Config {
     pub dump_html: Option<PathBuf>,
     /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
     pub driver: Option<Box<dyn BrowserDriver>>,
+    /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
+    pub provider: Option<Box<dyn SearchProvider>>,
 }
 
 impl Config {
@@ -46,6 +47,7 @@ impl Config {
             screenshot: None,
             dump_html: None,
             driver: None,
+            provider: None,
         }
     }
 
@@ -72,6 +74,12 @@ impl Config {
     /// 测试注入驱动（生产不要调用；优先级高于 `browser`）。
     pub fn with_driver(mut self, driver: Box<dyn BrowserDriver>) -> Self {
         self.driver = Some(driver);
+        self
+    }
+
+    /// 注入自定义引擎（`SearchProvider` 实现；优先级高于 `engine` 注册表）。
+    pub fn with_provider(mut self, provider: Box<dyn SearchProvider>) -> Self {
+        self.provider = Some(provider);
         self
     }
 }
@@ -110,14 +118,13 @@ impl DoctorReport {
         let backends = [BrowserKind::Fake, BrowserKind::Chrome, BrowserKind::Firefox]
             .into_iter()
             .map(|kind| {
-                let (binary, major_version, error) =
-                    match crate::drivers::discovery::find_browser(kind) {
-                        Ok(p) => {
-                            let version = crate::drivers::discovery::browser_major_version(&p);
-                            (Some(p), version, None)
-                        }
-                        Err(e) => (None, None, Some(e.to_string())),
-                    };
+                let (binary, major_version, error) = match crate::drivers::find_browser(kind) {
+                    Ok(p) => {
+                        let version = crate::drivers::browser_major_version(&p);
+                        (Some(p), version, None)
+                    }
+                    Err(e) => (None, None, Some(e.to_string())),
+                };
                 BackendStatus {
                     kind,
                     binary,
@@ -156,8 +163,11 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
     let started_at = Utc::now();
     let timer = Instant::now();
 
-    // 2. 选引擎
-    let provider = engines::resolve(&config.engine)?;
+    // 2. 选引擎：外部注入优先（自定义引擎扩展点），否则走内置注册表
+    let provider = match config.provider {
+        Some(p) => p,
+        None => engines::resolve(&config.engine)?,
+    };
     // 3. 选浏览器后端（测试可注入）
     let mut driver = match config.driver {
         Some(d) => d,
@@ -259,6 +269,7 @@ mod tests {
         assert!(c.screenshot.is_none());
         assert!(c.dump_html.is_none());
         assert!(c.driver.is_none());
+        assert!(c.provider.is_none());
     }
 
     #[test]

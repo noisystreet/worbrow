@@ -30,11 +30,11 @@ pub struct Cli {
     pub browser: BrowserArg,
 
     /// 返回条数上限
-    #[arg(long, default_value_t = crate::domain::DEFAULT_MAX_RESULTS)]
+    #[arg(long, default_value_t = worbrow::DEFAULT_MAX_RESULTS)]
     pub max_results: usize,
 
     /// 全流程硬超时（秒）
-    #[arg(long, default_value_t = crate::domain::DEFAULT_TIMEOUT_SECS)]
+    #[arg(long, default_value_t = worbrow::DEFAULT_TIMEOUT_SECS)]
     pub timeout: u64,
 
     /// JSON 输出（agent 调用必带）
@@ -102,8 +102,8 @@ pub enum BrowserArg {
 impl BrowserArg {
     /// 映射到库层 `BrowserKind`：委托 `BrowserKind::from_arg`（clap 变体名与
     /// MCP 侧参数共享同一解析源，杜绝两处映射漂移）。
-    pub fn to_kind(self) -> crate::drivers::BrowserKind {
-        crate::drivers::BrowserKind::from_arg(match self {
+    pub fn to_kind(self) -> worbrow::BrowserKind {
+        worbrow::BrowserKind::from_arg(match self {
             BrowserArg::Chrome => "chrome",
             BrowserArg::Firefox => "firefox",
         })

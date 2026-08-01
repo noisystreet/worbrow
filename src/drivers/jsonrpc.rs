@@ -57,6 +57,9 @@ pub struct RpcError {
 #[serde(untagged)]
 pub enum Incoming {
     Response(RpcResponse),
+    // 协议事件帧：当前仅跳过事件不消费，字段保留供反序列化与未来会话复用
+    // （roadmap P1）；模块内部化后触发 dead_code，统一标注。
+    #[allow(dead_code)]
     Event {
         method: String,
         #[serde(default)]

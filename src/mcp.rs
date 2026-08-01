@@ -21,7 +21,7 @@ use rmcp::{
 use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::app;
-use crate::drivers::BrowserKind;
+use crate::domain::BrowserKind;
 use crate::error::Error;
 
 /// MCP server：`web_search` 工具的唯一宿主。
@@ -105,17 +105,10 @@ impl SearchServer {
             Err(e) => return CallToolResult::error(vec![ContentBlock::text(e.to_string())]),
         };
 
-        let config = app::Config {
-            query: params.query,
-            engine: params.engine,
-            browser,
-            max_results: params.max_results.max(1),
+        let config = app::Config::new(params.query, params.engine, browser)
+            .with_max_results(params.max_results)
             // 防呆：clamp 到 1-300s，避免 agent 传 0 或极端值
-            timeout: Duration::from_secs(params.timeout.clamp(1, 300)),
-            screenshot: None,
-            dump_html: None,
-            driver: None,
-        };
+            .with_timeout(Duration::from_secs(params.timeout.clamp(1, 300)));
 
         match app::run(config).await {
             Ok(outcome) => CallToolResult::success(vec![ContentBlock::text(
