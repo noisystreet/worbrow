@@ -1,6 +1,6 @@
 [package]
 name = "worbrow"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 description = "Agent 搜索 CLI：驱动本机 headless 浏览器（Chrome/Edge/Firefox）执行通用搜索引擎搜索，输出稳定 JSON 契约"
 license = "MIT OR Apache-2.0"
