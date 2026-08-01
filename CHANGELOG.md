@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-01
+
 ### Added
 
 - **库 API 体验完善（P2，ADR-006）**：`Config` 字段私有化（builder 唯一入口，不可绕过
