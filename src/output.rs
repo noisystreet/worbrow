@@ -141,6 +141,8 @@ mod tests {
             title: "T".into(),
             url: "https://example.com".into(),
             snippet: "S".into(),
+            domain: "example.com".into(),
+            https: true,
         }];
         let text = success_text("q", &results, &meta);
         assert!(text.contains("query: q"));

@@ -77,11 +77,14 @@ impl SearchProvider for Bing {
                 continue;
             }
 
+            let (domain, https) = crate::extract::url_origin(&url);
             results.push(SearchResult {
                 rank: i + 1,
                 title: title_text,
                 url,
                 snippet: snippet_text,
+                domain,
+                https,
             });
         }
 
@@ -151,6 +154,8 @@ mod tests {
             results[0].url,
             "https://www.runoob.com/rust/rust-async-await.html"
         );
+        assert_eq!(results[0].domain, "www.runoob.com");
+        assert!(results[0].https);
         assert!(results[0].snippet.contains("异步编程"));
         // 第二条：URL 来自 href 直接提取，无跳转参数
         assert_eq!(
