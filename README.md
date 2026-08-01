@@ -20,6 +20,7 @@ cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/
 cargo run -- "rust 异步运行时" --json   # 默认引擎 bing、默认超时 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # 翻页聚合 + 语言/地域
+cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低产时自动尝试下一个）
 ```
 
 当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
@@ -118,7 +119,8 @@ worbrow "rust 异步" --engine bing --max-results 8 --timeout 60 --json
                 "domain": "example.com", "https": true }],
   "meta": { "engine": "bing", "started_at": "…", "elapsed_ms": 1200,
             "result_count": 3, "pages": 1, "low_yield": false,
-            "captcha": false, "engine_error": null }
+            "captcha": false, "engine_error": null,
+            "engine_tried": ["bing"] }
 }
 ```
 

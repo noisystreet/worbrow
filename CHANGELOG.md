@@ -16,6 +16,10 @@
 - **Bing ck/a 跳转链展开**：`www.bing.com/ck/a` 点击追踪链的 `u` 参数（base64url
   编码）解码为真实目标 URL；解码失败（无 `u`/非法 base64/非 http(s)）保持原样，
   模型侧拿到干净 URL 无需跟跳转
+- **引擎可配且可降级（P1）**：`--engine bing,duckduckgo`（逗号分隔 = 尝试顺序）；
+  验证码阻止/解析失败/低产时自动尝试下一引擎，全低产用最高产候选兜底；
+  `meta.engine_tried` 记录尝试链（schema v1 只增不改）；最终失败错误码保持稳定
+  （`captcha`/`parse`，exit 4）
 
 ## [0.1.0] - 2026-08-01
 
