@@ -240,95 +240,111 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
 
     // 4-8. 包整体硬超时：注入引擎单引擎（无降级）；否则内置注册表降级循环
     // （验证码阻止/解析失败/低产 → 尝试下一引擎，见 roadmap「引擎可配且可降级」）
-    let (engine, html, results, captcha, fetched_pages, low_yield, engine_tried) = match config
-        .provider
-    {
-        Some(provider) => {
-            let name = provider.name();
-            timeout(config.timeout, async {
-                let (html, results, captcha, pages) =
-                    search_one(&*provider, &query, &mut *driver, config.timeout).await?;
-                let low_yield = results.len() < LOW_YIELD_THRESHOLD;
-                Ok::<_, Error>((
-                    name,
-                    html,
-                    results,
-                    captcha,
-                    pages,
-                    low_yield,
-                    vec![name.to_string()],
-                ))
-            })
-            .await??
-        }
-        None => timeout(config.timeout, async {
-            let mut tried: Vec<String> = Vec::new();
-            // 低产候选兜底（取最高产）；引擎名恒为 `&'static str`（trait 签名）
-            let mut candidate: Option<(&'static str, Vec<SearchResult>, bool, usize, String)> =
-                None;
-            let mut last_error: Option<Error> = None;
-
-            for name in &config.engines {
-                let provider = engines::resolve(name)?;
-                tried.push(provider.name().to_string());
-                tracing::info!(engine = provider.name(), "尝试引擎");
-
-                match search_one(&*provider, &query, &mut *driver, config.timeout).await {
-                    Ok((html, results, captcha, pages)) => {
-                        // 满意：集满请求量或非低产（≥ 阈值）；否则保留候选继续降级
-                        let satisfied = results.len() >= query.max_results
-                            || results.len() >= LOW_YIELD_THRESHOLD;
-                        if satisfied {
-                            tracing::info!(
-                                engine = provider.name(),
-                                count = results.len(),
-                                "采用引擎"
-                            );
-                            let low_yield = results.len() < LOW_YIELD_THRESHOLD;
-                            return Ok::<_, Error>((
-                                provider.name(),
-                                html,
-                                results,
-                                captcha,
-                                pages,
-                                low_yield,
-                                tried,
-                            ));
-                        }
-                        // 低产：保留最高产候选，继续尝试下一引擎
-                        let better = match &candidate {
-                            Some((_, cur, ..)) => results.len() > cur.len(),
-                            None => true,
-                        };
-                        if better {
-                            candidate = Some((provider.name(), results, captcha, pages, html));
-                        }
-                        tracing::warn!(engine = provider.name(), "低产，保留候选继续尝试");
-                    }
-                    Err(Error::Captcha(e)) => {
-                        last_error = Some(Error::Captcha(e));
-                        tracing::warn!(engine = provider.name(), "验证码阻止，降级");
-                    }
-                    Err(Error::Engine(e)) => {
-                        tracing::warn!(engine = provider.name(), code = %e.code, "解析失败，降级");
-                        last_error = Some(Error::Engine(e));
-                    }
-                    // 网络/超时等错误不降级，直接返回（避免放大总耗时）
-                    Err(e) => return Err(e),
+    let (engine, html, results, captcha, fetched_pages, low_yield, engine_tried, mut driver) =
+        match config.provider {
+            Some(provider) => {
+                let name = provider.name();
+                // driver 移入闭包：超时/失败时闭包 drop → driver drop → 杀浏览器进程
+                //（design.md §8：超时/取消/失败均回收子进程，防残留）
+                let outcome = timeout(config.timeout, async {
+                    let (html, results, captcha, pages) =
+                        search_one(&*provider, &query, &mut *driver, config.timeout).await?;
+                    let low_yield = results.len() < LOW_YIELD_THRESHOLD;
+                    Ok::<_, Error>((
+                        name,
+                        html,
+                        results,
+                        captcha,
+                        pages,
+                        low_yield,
+                        vec![name.to_string()],
+                        driver,
+                    ))
+                })
+                .await;
+                match outcome {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => return Err(Error::Timeout("任务超时".into())),
                 }
             }
+            None => {
+                let outcome = timeout(config.timeout, async {
+                    let mut tried: Vec<String> = Vec::new();
+                    // 低产候选兜底（取最高产）；引擎名恒为 `&'static str`（trait 签名）
+                    let mut candidate: Option<(&'static str, Vec<SearchResult>, bool, usize, String)> =
+                        None;
+                    let mut last_error: Option<Error> = None;
 
-            // 全部尝试完：有低产候选则兜底成功；否则返回最后错误（captcha 优先）
-            if let Some((engine, results, captcha, pages, html)) = candidate {
-                return Ok((engine, html, results, captcha, pages, true, tried));
+                    for name in &config.engines {
+                        let provider = engines::resolve(name)?;
+                        tried.push(provider.name().to_string());
+                        tracing::info!(engine = provider.name(), "尝试引擎");
+
+                        match search_one(&*provider, &query, &mut *driver, config.timeout).await {
+                            Ok((html, results, captcha, pages)) => {
+                                // 满意：集满请求量或非低产（≥ 阈值）；否则保留候选继续降级
+                                let satisfied = results.len() >= query.max_results
+                                    || results.len() >= LOW_YIELD_THRESHOLD;
+                                if satisfied {
+                                    tracing::info!(
+                                        engine = provider.name(),
+                                        count = results.len(),
+                                        "采用引擎"
+                                    );
+                                    let low_yield = results.len() < LOW_YIELD_THRESHOLD;
+                                    return Ok::<_, Error>((
+                                        provider.name(),
+                                        html,
+                                        results,
+                                        captcha,
+                                        pages,
+                                        low_yield,
+                                        tried,
+                                        driver,
+                                    ));
+                                }
+                                // 低产：保留最高产候选，继续尝试下一引擎
+                                let better = match &candidate {
+                                    Some((_, cur, ..)) => results.len() > cur.len(),
+                                    None => true,
+                                };
+                                if better {
+                                    candidate =
+                                        Some((provider.name(), results, captcha, pages, html));
+                                }
+                                tracing::warn!(engine = provider.name(), "低产，保留候选继续尝试");
+                            }
+                            Err(Error::Captcha(e)) => {
+                                last_error = Some(Error::Captcha(e));
+                                tracing::warn!(engine = provider.name(), "验证码阻止，降级");
+                            }
+                            Err(Error::Engine(e)) => {
+                                tracing::warn!(engine = provider.name(), code = %e.code, "解析失败，降级");
+                                last_error = Some(Error::Engine(e));
+                            }
+                            // 网络/超时等错误不降级，直接返回（避免放大总耗时）
+                            Err(e) => return Err(e),
+                        }
+                    }
+
+                    // 全部尝试完：有低产候选则兜底成功；否则返回最后错误（captcha 优先）
+                    if let Some((engine, results, captcha, pages, html)) = candidate {
+                        return Ok((engine, html, results, captcha, pages, true, tried, driver));
+                    }
+                    match last_error {
+                        Some(err) => Err(err),
+                        None => Err(Error::Internal("引擎列表为空".into())),
+                    }
+                })
+                .await;
+                match outcome {
+                    Ok(Ok(v)) => v,
+                    Ok(Err(e)) => return Err(e),
+                    Err(_) => return Err(Error::Timeout("任务超时".into())),
+                }
             }
-            match last_error {
-                Some(err) => Err(err),
-                None => Err(Error::Internal("引擎列表为空".into())),
-            }
-        })
-        .await??,
-    };
+        };
 
     // 9. 可选调试产物（失败仅告警，不影响主流程）
     if let Some(path) = config.screenshot.as_deref()
