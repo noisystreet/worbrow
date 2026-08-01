@@ -51,6 +51,11 @@ priority = "optional"
 # 运行时需任一浏览器（Chrome/Edge 亦可，故为弱依赖）
 recommends = "firefox | firefox-esr"
 
+# 依赖审计例外：tokio-tungstenite 是 CDP 后端（drivers/cdp.rs，当前为桩）规划的 WebSocket
+# 依赖（见 docs/adr/0002-browser-driver-protocols.md），桩完成前代码未引用，属 machete 误报
+[package.metadata.cargo-machete]
+ignored = ["tokio-tungstenite"]
+
 # 安全基线：依赖树许可与漏洞检查（cargo-deny）
 [package.metadata.deny]
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
