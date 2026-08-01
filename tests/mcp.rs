@@ -352,6 +352,68 @@ async fn tools_call_rejects_invalid_safesearch() {
     client.kill().await;
 }
 
+/// 结果缓存：相同请求参数在 TTL 内二次调用命中缓存（meta.cached=true，elapsed_ms=0）；
+/// `no_cache=true` 绕过缓存（meta.cached=false）。
+#[tokio::test]
+async fn tools_call_hits_cache_on_repeat_query() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let args = json!({
+        "name": "web_search",
+        "arguments": {
+            "query": "rust cache",
+            "browser": "fake",
+            "max_results": 3,
+            "timeout": 10
+        }
+    });
+
+    // 第一次：未命中缓存，正常搜索
+    let first = client.call("tools/call", args.clone()).await;
+    let first_text = first["result"]["content"][0]["text"]
+        .as_str()
+        .expect("第一次应有文本");
+    let first_payload: Value = serde_json::from_str(first_text).expect("成功包 JSON");
+    assert_eq!(first_payload["meta"]["cached"], false, "首次不命中缓存");
+
+    // 第二次（TTL 内）：命中缓存，cached=true 且 elapsed_ms=0
+    let second = client.call("tools/call", args.clone()).await;
+    let second_text = second["result"]["content"][0]["text"]
+        .as_str()
+        .expect("第二次应有文本");
+    let second_payload: Value = serde_json::from_str(second_text).expect("成功包 JSON");
+    assert_eq!(second_payload["meta"]["cached"], true, "相同请求应命中缓存");
+    assert_eq!(second_payload["meta"]["elapsed_ms"], 0, "命中时延应记 0");
+    assert_eq!(second_payload["query"], "rust cache");
+
+    // no_cache=true：绕过缓存，正常搜索（cached=false）
+    let bypass = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "web_search",
+                "arguments": {
+                    "query": "rust cache",
+                    "browser": "fake",
+                    "max_results": 3,
+                    "timeout": 10,
+                    "no_cache": true
+                }
+            }),
+        )
+        .await;
+    let bypass_text = bypass["result"]["content"][0]["text"]
+        .as_str()
+        .expect("no_cache 应有文本");
+    let bypass_payload: Value = serde_json::from_str(bypass_text).expect("成功包 JSON");
+    assert_eq!(
+        bypass_payload["meta"]["cached"], false,
+        "no_cache 应绕过缓存"
+    );
+    client.kill().await;
+}
+
 /// 空闲超时：无任何请求时 server 应在超时后自动退出（exit 0），不留残留进程。
 /// 关键：stdin 保持打开（writer 移出后不 drop），验证触发因素是"空闲"而非"EOF"。
 #[tokio::test]

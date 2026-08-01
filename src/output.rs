@@ -101,6 +101,8 @@ mod tests {
             captcha: false,
             engine_error: None,
             engine_tried: vec!["duckduckgo".to_string()],
+            cached: false,
+            retries: 0,
         };
         let json = success("q", &[], &meta);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -137,6 +139,8 @@ mod tests {
             captcha: false,
             engine_error: None,
             engine_tried: vec!["duckduckgo".to_string()],
+            cached: false,
+            retries: 0,
         };
         let results = [SearchResult {
             rank: 1,

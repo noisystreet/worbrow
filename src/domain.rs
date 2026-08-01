@@ -98,10 +98,14 @@ pub struct SearchMeta {
     pub engine_error: Option<EngineError>,
     /// 引擎降级尝试链（含最终采用者；单引擎时为 `[engine]`，schema v1 新增字段）。
     pub engine_tried: Vec<String>,
+    /// 是否命中 MCP 短 TTL 缓存（schema v1 新增字段；CLI 恒 false——缓存仅 MCP 长驻生效）。
+    pub cached: bool,
+    /// 实际网络重试次数（`--retry` 触发的退避重试数；未配置或无重试为 0）。
+    pub retries: usize,
 }
 
 /// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；零依赖纯枚举）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum BrowserKind {
     /// Chrome / Edge / Chromium（CDP）
     Chrome,
@@ -135,7 +139,7 @@ impl BrowserKind {
 }
 
 /// 时间过滤窗口（请求参数；`None` = 不限时间，引擎默认）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum Freshness {
     Day,
     Week,
@@ -177,7 +181,7 @@ impl Freshness {
 }
 
 /// 安全搜索级别（请求参数；`None` = 引擎默认）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum SafesearchLevel {
     Off,
     Moderate,

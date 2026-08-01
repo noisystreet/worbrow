@@ -49,6 +49,8 @@ pub struct Config {
     driver: Option<Box<dyn BrowserDriver>>,
     /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
     provider: Option<Box<dyn SearchProvider>>,
+    /// 瞬时网络错误重试次数（`--retry <n>`；指数退避，封顶）。0 = 不重试（默认）。
+    retry: usize,
 }
 
 impl Config {
@@ -72,6 +74,7 @@ impl Config {
             filetype: None,
             driver: None,
             provider: None,
+            retry: 0,
         }
     }
 
@@ -149,6 +152,13 @@ impl Config {
         self
     }
 
+    /// 瞬时网络错误重试次数（指数退避，封顶；0 = 不重试）。
+    /// 仅 `Error::Network` 触发重试；验证码/参数错误/超时不重试（避免无意义放大延迟）。
+    pub fn with_retry(mut self, retry: usize) -> Self {
+        self.retry = retry;
+        self
+    }
+
     /// 追加降级引擎（顺序在首选之后；验证码/解析失败/低产时自动尝试）。
     /// 与 `Config::new` 的逗号分隔一致：trim、去空、去重（保持首现）。
     pub fn with_fallback_engines(
@@ -177,7 +187,7 @@ fn parse_engine_chain(s: &str) -> Vec<String> {
         .collect()
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Outcome {
     pub query: String,
     pub results: Vec<SearchResult>,
@@ -305,110 +315,32 @@ pub(crate) async fn run_with(
         filetype: config.filetype.clone(),
     };
 
-    // 4-8. 包整体硬超时：注入引擎单引擎（无降级）；否则内置注册表降级循环
-    // （验证码阻止/解析失败/低产 → 尝试下一引擎，见 roadmap「引擎可配且可降级」）
-    let (engine, html, results, captcha, fetched_pages, low_yield, engine_tried) = match config
-        .provider
-    {
-        Some(provider) => {
-            let name = provider.name();
-            let outcome = timeout(config.timeout, async {
-                let (html, results, captcha, pages) =
-                    search_one(&*provider, &query, driver, config.timeout).await?;
-                let low_yield = results.len() < LOW_YIELD_THRESHOLD;
-                Ok::<_, Error>((
-                    name,
-                    html,
-                    results,
-                    captcha,
-                    pages,
-                    low_yield,
-                    vec![name.to_string()],
-                ))
-            })
-            .await;
-            match outcome {
-                Ok(Ok(v)) => v,
-                Ok(Err(e)) => return Err(e),
-                Err(_) => return Err(Error::Timeout("任务超时".into())),
+    // 4-8. 包整体硬超时 + 瞬时网络错误退避重试（`--retry <n>`；全局 timeout 兜底，
+    // 退避计入预算内，避免重试无限放大延迟）。
+    // 仅 `Error::Network` 触发重试；验证码/参数错误/解析失败（有降级链）不重试。
+    let retries = config.retry;
+    let outcome = timeout(config.timeout, async {
+        let mut attempt = 0usize;
+        loop {
+            match search_attempt(driver, &config, &query, config.timeout).await {
+                Ok(v) => break Ok((v, attempt)),
+                Err(e @ Error::Network(_)) if attempt < retries => {
+                    attempt += 1;
+                    let delay = backoff_delay(attempt);
+                    tracing::warn!(attempt, ?delay, "瞬时网络错误，退避重试: {e}");
+                    tokio::time::sleep(delay).await;
+                }
+                Err(e) => break Err(e),
             }
         }
-        None => {
-            let outcome = timeout(config.timeout, async {
-                    let mut tried: Vec<String> = Vec::new();
-                    // 低产候选兜底（取最高产）；引擎名恒为 `&'static str`（trait 签名）
-                    let mut candidate: Option<(&'static str, Vec<SearchResult>, bool, usize, String)> =
-                        None;
-                    let mut last_error: Option<Error> = None;
-
-                    for name in &config.engines {
-                        let provider = engines::resolve(name)?;
-                        tried.push(provider.name().to_string());
-                        tracing::info!(engine = provider.name(), "尝试引擎");
-
-                        match search_one(&*provider, &query, driver, config.timeout).await {
-                            Ok((html, results, captcha, pages)) => {
-                                // 满意：集满请求量或非低产（≥ 阈值）；否则保留候选继续降级
-                                let satisfied = results.len() >= query.max_results
-                                    || results.len() >= LOW_YIELD_THRESHOLD;
-                                if satisfied {
-                                    tracing::info!(
-                                        engine = provider.name(),
-                                        count = results.len(),
-                                        "采用引擎"
-                                    );
-                                    let low_yield = results.len() < LOW_YIELD_THRESHOLD;
-                                    return Ok::<_, Error>((
-                                        provider.name(),
-                                        html,
-                                        results,
-                                        captcha,
-                                        pages,
-                                        low_yield,
-                                        tried,
-                                    ));
-                                }
-                                // 低产：保留最高产候选，继续尝试下一引擎
-                                let better = match &candidate {
-                                    Some((_, cur, ..)) => results.len() > cur.len(),
-                                    None => true,
-                                };
-                                if better {
-                                    candidate =
-                                        Some((provider.name(), results, captcha, pages, html));
-                                }
-                                tracing::warn!(engine = provider.name(), "低产，保留候选继续尝试");
-                            }
-                            Err(Error::Captcha(e)) => {
-                                last_error = Some(Error::Captcha(e));
-                                tracing::warn!(engine = provider.name(), "验证码阻止，降级");
-                            }
-                            Err(Error::Engine(e)) => {
-                                tracing::warn!(engine = provider.name(), code = %e.code, "解析失败，降级");
-                                last_error = Some(Error::Engine(e));
-                            }
-                            // 网络/超时等错误不降级，直接返回（避免放大总耗时）
-                            Err(e) => return Err(e),
-                        }
-                    }
-
-                    // 全部尝试完：有低产候选则兜底成功；否则返回最后错误（captcha 优先）
-                    if let Some((engine, results, captcha, pages, html)) = candidate {
-                        return Ok((engine, html, results, captcha, pages, true, tried));
-                    }
-                    match last_error {
-                        Some(err) => Err(err),
-                        None => Err(Error::Internal("引擎列表为空".into())),
-                    }
-                })
-                .await;
-            match outcome {
-                Ok(Ok(v)) => v,
-                Ok(Err(e)) => return Err(e),
-                Err(_) => return Err(Error::Timeout("任务超时".into())),
-            }
-        }
-    };
+    })
+    .await;
+    let (engine, html, results, captcha, fetched_pages, low_yield, engine_tried, retried) =
+        match outcome {
+            Ok(Ok((v, retried))) => (v.0, v.1, v.2, v.3, v.4, v.5, v.6, retried),
+            Ok(Err(e)) => return Err(e),
+            Err(_) => return Err(Error::Timeout("任务超时".into())),
+        };
 
     // 9. 可选调试产物（失败仅告警，不影响主流程）
     if let Some(path) = config.screenshot.as_deref()
@@ -435,6 +367,8 @@ pub(crate) async fn run_with(
         captcha,
         engine_error: None,
         engine_tried,
+        cached: false, // CLI/MCP 非缓存路径恒 false；MCP 缓存命中由缓存层构造
+        retries: retried,
     };
 
     Ok(Outcome {
@@ -442,6 +376,148 @@ pub(crate) async fn run_with(
         results,
         meta,
     })
+}
+
+/// 单次完整搜索尝试的结果元组（engine, html, results, captcha, pages, low_yield, tried）。
+type SearchAttempt = (
+    &'static str,
+    String,
+    Vec<SearchResult>,
+    bool,
+    usize,
+    bool,
+    Vec<String>,
+);
+
+/// 单次完整搜索尝试（含引擎降级链）：注入引擎单引擎（无降级）；否则内置注册表
+/// 降级循环（验证码阻止/解析失败/低产 → 尝试下一引擎）。
+/// `Error::Network` 交由上层退避重试循环处理。
+///
+/// `timeout_dur` 用于等待预算（整体超时在调用方）。
+async fn search_attempt(
+    driver: &mut dyn BrowserDriver,
+    config: &Config,
+    query: &SearchQuery,
+    timeout_dur: Duration,
+) -> Result<SearchAttempt, Error> {
+    match &config.provider {
+        Some(provider) => {
+            let name = provider.name();
+            let (html, results, captcha, pages) =
+                search_one(&**provider, query, driver, timeout_dur).await?;
+            let low_yield = results.len() < LOW_YIELD_THRESHOLD;
+            Ok((
+                name,
+                html,
+                results,
+                captcha,
+                pages,
+                low_yield,
+                vec![name.to_string()],
+            ))
+        }
+        None => search_engine_chain(driver, config, query, timeout_dur).await,
+    }
+}
+
+/// 引擎注册表降级循环（design.md §6.2 步骤 4a-4e）：按 `config.engines` 顺序尝试，
+/// 验证码阻止/解析失败/低产 → 下一引擎；全低产用最高产候选兜底。
+/// `Error::Network`/超时不降级，直接返回（交由重试循环，避免放大总耗时）。
+async fn search_engine_chain(
+    driver: &mut dyn BrowserDriver,
+    config: &Config,
+    query: &SearchQuery,
+    timeout_dur: Duration,
+) -> Result<SearchAttempt, Error> {
+    let mut tried: Vec<String> = Vec::new();
+    // 低产候选兜底（取最高产）；引擎名恒为 `&'static str`（trait 签名）
+    let mut candidate: Option<(&'static str, Vec<SearchResult>, bool, usize, String)> = None;
+    let mut last_error: Option<Error> = None;
+
+    for name in &config.engines {
+        let provider = engines::resolve(name)?;
+        tried.push(provider.name().to_string());
+        tracing::info!(engine = provider.name(), "尝试引擎");
+
+        if let Some((engine, html, results, captcha, pages, low_yield)) = handle_engine_result(
+            search_one(&*provider, query, driver, timeout_dur).await,
+            &*provider,
+            query,
+            &mut candidate,
+            &mut last_error,
+        )
+        .await?
+        {
+            return Ok((engine, html, results, captcha, pages, low_yield, tried));
+        }
+    }
+
+    // 全部尝试完：有低产候选则兜底成功；否则返回最后错误（captcha 优先）
+    if let Some((engine, results, captcha, pages, html)) = candidate {
+        return Ok((engine, html, results, captcha, pages, true, tried));
+    }
+    match last_error {
+        Some(err) => Err(err),
+        None => Err(Error::Internal("引擎列表为空".into())),
+    }
+}
+
+/// 处理单引擎结果：满意 → `Some((engine, html, results, captcha, pages, low_yield))` 采用；
+/// 低产/验证码/解析失败 → `None`（记录候选或错误，继续降级）；网络/超时 → `Err`。
+#[allow(clippy::type_complexity)]
+async fn handle_engine_result(
+    result: Result<(String, Vec<SearchResult>, bool, usize), Error>,
+    provider: &dyn SearchProvider,
+    query: &SearchQuery,
+    candidate: &mut Option<(&'static str, Vec<SearchResult>, bool, usize, String)>,
+    last_error: &mut Option<Error>,
+) -> Result<Option<(&'static str, String, Vec<SearchResult>, bool, usize, bool)>, Error> {
+    match result {
+        Ok((html, results, captcha, pages)) => {
+            // 满意：集满请求量或非低产（≥ 阈值）；否则保留候选继续降级
+            let satisfied =
+                results.len() >= query.max_results || results.len() >= LOW_YIELD_THRESHOLD;
+            if satisfied {
+                tracing::info!(engine = provider.name(), count = results.len(), "采用引擎");
+                let low_yield = results.len() < LOW_YIELD_THRESHOLD;
+                return Ok(Some((
+                    provider.name(),
+                    html,
+                    results,
+                    captcha,
+                    pages,
+                    low_yield,
+                )));
+            }
+            // 低产：保留最高产候选，继续尝试下一引擎
+            let better = match candidate {
+                Some((_, cur, ..)) => results.len() > cur.len(),
+                None => true,
+            };
+            if better {
+                *candidate = Some((provider.name(), results, captcha, pages, html));
+            }
+            tracing::warn!(engine = provider.name(), "低产，保留候选继续尝试");
+            Ok(None)
+        }
+        Err(Error::Captcha(e)) => {
+            *last_error = Some(Error::Captcha(e));
+            tracing::warn!(engine = provider.name(), "验证码阻止，降级");
+            Ok(None)
+        }
+        Err(Error::Engine(e)) => {
+            tracing::warn!(engine = provider.name(), code = %e.code, "解析失败，降级");
+            *last_error = Some(Error::Engine(e));
+            Ok(None)
+        }
+        // 网络/超时等错误不降级，直接返回（避免放大总耗时，交由重试循环）
+        Err(e) => Err(e),
+    }
+}
+
+/// 指数退避：第 `attempt`（从 1 起）次重试延迟 = 2^(attempt-1) 秒（1s/2s/4s/8s 封顶）。
+fn backoff_delay(attempt: usize) -> Duration {
+    Duration::from_secs(1 << attempt.saturating_sub(1).min(3))
 }
 
 /// 单引擎搜索（design.md §6.2 步骤 5-8）：翻页聚合、captcha 检测、按 URL 去重合并。
@@ -672,5 +748,123 @@ mod tests {
             .with_timeout(Duration::from_secs(5));
         let outcome = run_with(&mut driver, cfg2).await.expect("复用驱动应成功");
         assert!(!outcome.results.is_empty());
+    }
+
+    /// 退避延迟：指数序列 1s/2s/4s/8s 封顶。
+    #[test]
+    fn backoff_delay_is_exponential_capped() {
+        assert_eq!(backoff_delay(1), Duration::from_secs(1));
+        assert_eq!(backoff_delay(2), Duration::from_secs(2));
+        assert_eq!(backoff_delay(3), Duration::from_secs(4));
+        assert_eq!(backoff_delay(4), Duration::from_secs(8));
+        assert_eq!(backoff_delay(10), Duration::from_secs(8), "封顶 8s");
+    }
+
+    /// `--retry`：瞬时网络错误退避重试后成功，`meta.retries` 记录实际重试次数。
+    #[tokio::test]
+    async fn retry_recovers_from_transient_network_error() {
+        /// 前 `failures` 次 navigate 返回网络错误，之后正常（模拟瞬时网络抖动）。
+        struct FlakyDriver {
+            failures: usize,
+        }
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for FlakyDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                if self.failures > 0 {
+                    self.failures -= 1;
+                    return Err(Error::Network("模拟瞬时网络错误".into()));
+                }
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(include_str!("../tests/fixtures/bing.html").to_string())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        // 失败 1 次 + retry=2 → 第 2 次尝试成功；meta.retries=1
+        let mut driver = FlakyDriver { failures: 1 };
+        let cfg = Config::new("rust", "bing", BrowserKind::Fake)
+            .with_max_results(3)
+            .with_timeout(Duration::from_secs(30))
+            .with_retry(2);
+        let outcome = run_with(&mut driver, cfg).await.expect("重试后应成功");
+        assert_eq!(outcome.meta.retries, 1, "失败 1 次 → 实际重试 1 次");
+        assert!(!outcome.results.is_empty());
+    }
+
+    /// 重试耗尽：网络错误持续 → 返回 Network 错误（不无限重试）。
+    #[tokio::test]
+    async fn retry_exhausted_returns_network_error() {
+        struct AlwaysFail;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for AlwaysFail {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Err(Error::Network("模拟持续网络错误".into()))
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(String::new())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = AlwaysFail;
+        let cfg = Config::new("q", "bing", BrowserKind::Fake)
+            .with_timeout(Duration::from_secs(30))
+            .with_retry(1);
+        // 首次失败 + 退避 1s + 重试失败 = 总计约 1s+，断言错误类型即可
+        let err = run_with(&mut driver, cfg)
+            .await
+            .expect_err("持续网络错误应返回");
+        assert!(matches!(err, Error::Network(_)));
+    }
+
+    /// 非网络错误不触发重试：验证码阻止直接返回（不放大延迟）。
+    #[tokio::test]
+    async fn captcha_error_is_not_retried() {
+        struct CaptchaDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for CaptchaDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Err(Error::Captcha("模拟验证码".into()))
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(String::new())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = CaptchaDriver;
+        let cfg = Config::new("q", "bing", BrowserKind::Fake)
+            .with_timeout(Duration::from_secs(30))
+            .with_retry(3);
+        let err = run_with(&mut driver, cfg)
+            .await
+            .expect_err("验证码错误应直接返回");
+        assert!(matches!(err, Error::Captcha(_)));
     }
 }

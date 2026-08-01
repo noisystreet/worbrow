@@ -65,7 +65,8 @@ fn run_cli() -> ExitCode {
         .with_freshness(cli.freshness.map(|f| f.to_domain()))
         .with_safesearch(cli.safesearch.map(|s| s.to_domain()))
         .with_site(cli.site)
-        .with_filetype(cli.filetype);
+        .with_filetype(cli.filetype)
+        .with_retry(cli.retry);
 
     // 同步入口：内部管理 tokio runtime（CLI 保持薄封装）
     finish(&app::search(config), json)
