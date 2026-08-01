@@ -105,7 +105,18 @@ fn doctor() -> ExitCode {
     }
     println!("浏览器后端:");
     println!("  - fake: 可用（测试）");
-    println!("  - chrome (CDP): 待实现（V1）");
+    match drivers::discovery::find_browser(BrowserKind::Chrome) {
+        Ok(p) => {
+            let version = drivers::discovery::browser_major_version(&p)
+                .map(|v| v.to_string())
+                .unwrap_or_else(|| "未知".into());
+            println!(
+                "  - chrome (CDP): 已实现（V1），二进制: {}（主版本 {version}）",
+                p.display()
+            );
+        }
+        Err(e) => println!("  - chrome (CDP): 不可用 - {e}"),
+    }
     match drivers::discovery::find_browser(BrowserKind::Firefox) {
         Ok(p) => {
             let version = drivers::discovery::browser_major_version(&p)

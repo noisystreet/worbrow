@@ -12,6 +12,10 @@ pub struct RpcRequest {
     pub method: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub params: Option<serde_json::Value>,
+    /// CDP `Target.attachToTarget` 之后的会话 id（消息需带 `sessionId`）；
+    /// Marionette 不使用，`None` 时不序列化（serde rename 为 CDP 的 camelCase）。
+    #[serde(skip_serializing_if = "Option::is_none", rename = "sessionId")]
+    pub session_id: Option<String>,
 }
 
 impl RpcRequest {
@@ -20,7 +24,14 @@ impl RpcRequest {
             id,
             method: method.into(),
             params,
+            session_id: None,
         }
+    }
+
+    /// CDP：标记消息所属的 target 会话。
+    pub fn with_session(mut self, session_id: impl Into<String>) -> Self {
+        self.session_id = Some(session_id.into());
+        self
     }
 }
 
@@ -73,7 +84,15 @@ mod tests {
         let req = RpcRequest::new(1, "Page.navigate", None);
         let json = serde_json::to_string(&req).unwrap();
         assert!(!json.contains("params"));
+        assert!(!json.contains("sessionId"));
         assert!(json.contains("\"id\":1"));
+    }
+
+    #[test]
+    fn request_serializes_session_id_for_cdp() {
+        let req = RpcRequest::new(2, "Runtime.evaluate", None).with_session("sid-1");
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"sessionId\":\"sid-1\""));
     }
 
     #[test]
