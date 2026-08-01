@@ -6,6 +6,12 @@
 
 ### Added
 
+- **库 API 公开面收敛为类型级顶层 API（ADR-006）**：`BrowserKind` 上移为顶层类型
+  （`worbrow::BrowserKind`）；顶层 re-export `Config`/`Outcome`/`DoctorReport`/`Error`/
+  `search`/`DEFAULT_*`；`Config::with_provider` 支持注入自定义引擎（外部无需复制
+  `run` 编排）；CLI 参数解析（clap）移入二进制，lib 不再暴露 `cli` 模块；适配器
+  实现（cdp/marionette/fake/bing 等）内部化，公开面仅 `resolve`/`AVAILABLE`；
+  `Error` 底层错误经 `#[source]` 可下钻
 - **库 API 完善**：`app::run_sync`（同步搜索入口，内部管理 tokio runtime）、
   `app::DoctorReport`/`BackendStatus`（结构化环境自检）、`Config::new` + builder
   （`with_max_results`/`with_timeout`/`with_screenshot`/`with_dump_html`/`with_driver`）、

@@ -78,7 +78,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-003](adr/0003-search-url-direct.md) | 搜索方式 = URL 直访优先，交互原语备用 | 已接受 |
 | [ADR-004](adr/0004-output-contract-json.md) | 输出契约 = JSON schema v1 + 语义化退出码 | 已接受 |
 | [ADR-005](adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`worbrow mcp`，rmcp 2.2） | 已接受 |
-| [ADR-006](adr/0006-lib-api-surface.md) | 库 API 公开面 = 类型级顶层 re-export（外部消费者） | 提案 |
+| [ADR-006](adr/0006-lib-api-surface.md) | 库 API 公开面 = 类型级顶层 re-export（外部消费者） | 已接受 |
 
 ---
 
@@ -129,9 +129,8 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 ```
 Cargo.toml            # 单 crate：lib + bin
 src/
-  main.rs             # 薄入口：解析 → app::run → 按结果映射退出码
-  lib.rs              # 导出 app / domain / ports，供集成测试
-  cli.rs              # clap 参数定义（含 --json/--engine/--browser/--max-results/--timeout/--screenshot）
+  main.rs             # 薄入口 + CLI 参数解析（clap，bin 私有，ADR-006）
+  lib.rs              # 公开面：顶层 re-export（Config/BrowserKind/...，ADR-006）
   app.rs              # 用例编排（见 §6.2）
   domain.rs           # SearchQuery / SearchResult
   error.rs            # Error 枚举 → 退出码映射
