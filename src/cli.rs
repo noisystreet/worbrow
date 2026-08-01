@@ -20,6 +20,8 @@ pub struct Cli {
     pub query: Option<String>,
 
     /// 搜索引擎
+    // 默认引擎与 `domain::DEFAULT_ENGINE` 保持一致（clap 需 ValueEnum 变体，无法直接引用常量）；
+    // 变更默认引擎时两处必须同步
     #[arg(long, value_enum, default_value_t = EngineArg::Bing)]
     pub engine: EngineArg,
 
@@ -28,11 +30,11 @@ pub struct Cli {
     pub browser: BrowserArg,
 
     /// 返回条数上限
-    #[arg(long, default_value_t = 10)]
+    #[arg(long, default_value_t = crate::domain::DEFAULT_MAX_RESULTS)]
     pub max_results: usize,
 
     /// 全流程硬超时（秒）
-    #[arg(long, default_value_t = 60)]
+    #[arg(long, default_value_t = crate::domain::DEFAULT_TIMEOUT_SECS)]
     pub timeout: u64,
 
     /// JSON 输出（agent 调用必带）
@@ -95,6 +97,18 @@ impl EngineArg {
 pub enum BrowserArg {
     Chrome,
     Firefox,
+}
+
+impl BrowserArg {
+    /// 映射到库层 `BrowserKind`：委托 `BrowserKind::from_arg`（clap 变体名与
+    /// MCP 侧参数共享同一解析源，杜绝两处映射漂移）。
+    pub fn to_kind(self) -> crate::drivers::BrowserKind {
+        crate::drivers::BrowserKind::from_arg(match self {
+            BrowserArg::Chrome => "chrome",
+            BrowserArg::Firefox => "firefox",
+        })
+        .expect("clap 变体名必然可被 BrowserKind::from_arg 解析")
+    }
 }
 
 /// stderr 日志级别。

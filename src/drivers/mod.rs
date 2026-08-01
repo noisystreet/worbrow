@@ -37,6 +37,19 @@ impl fmt::Display for BrowserKind {
     }
 }
 
+impl BrowserKind {
+    /// 从 CLI/MCP 参数值解析（大小写不敏感；`chrome`/`edge`/`chromium` 统一为 Chrome）。
+    /// 单一映射源：`cli::BrowserArg` 与 `mcp::parse_browser` 均委托此实现。
+    pub fn from_arg(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "chrome" | "edge" | "chromium" => Some(Self::Chrome),
+            "firefox" => Some(Self::Firefox),
+            "fake" => Some(Self::Fake),
+            _ => None,
+        }
+    }
+}
+
 /// 后端注册表：`--browser` 参数值 → `Box<dyn BrowserDriver>`。
 ///
 /// Firefox（Marionette）与 Chrome（CDP）V1 均已实现（design.md §6.5 / §10.2）。
@@ -46,5 +59,24 @@ pub async fn resolve(kind: BrowserKind) -> Result<Box<dyn BrowserDriver>, Error>
         BrowserKind::Fake => Ok(Box::new(FakeDriver::with_html(fake::SMOKE_HTML))),
         BrowserKind::Chrome => cdp::CdpDriver::spawn().await,
         BrowserKind::Firefox => marionette::MarionetteDriver::spawn().await,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn browser_kind_from_arg_normalizes_and_aliases() {
+        assert_eq!(BrowserKind::from_arg("chrome"), Some(BrowserKind::Chrome));
+        assert_eq!(BrowserKind::from_arg("Edge"), Some(BrowserKind::Chrome));
+        assert_eq!(
+            BrowserKind::from_arg(" chromium "),
+            Some(BrowserKind::Chrome)
+        );
+        assert_eq!(BrowserKind::from_arg("firefox"), Some(BrowserKind::Firefox));
+        assert_eq!(BrowserKind::from_arg("fake"), Some(BrowserKind::Fake));
+        assert_eq!(BrowserKind::from_arg("lynx"), None);
+        assert_eq!(BrowserKind::from_arg(""), None);
     }
 }
