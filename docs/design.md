@@ -349,10 +349,13 @@ pub trait SearchProvider: Send + Sync {
 
 - **硬超时**：`--timeout` 用 `tokio::time::timeout` 包整个用例；超时 → 关闭浏览器 → exit 124。
   进程级兜底：调用方（agent）可再套一层 OS 级 timeout kill，两者语义一致（124）。
-- **资源回收**：浏览器为子进程；`Drop` + 进程退出即回收，无常驻句柄；screenshot 与临时
-  用户目录写入 `std::env::temp_dir()` 并随 Drop 清理。
+- **资源回收（超时/取消/Drop 三路径统一）**：浏览器为子进程；`app::run` 将 driver
+  **移入超时闭包**——超时取消、错误提前返回或显式 abort 时闭包 drop → driver drop →
+  杀浏览器子进程（CDP 另加 `wait()` 收割防 zombie；Marionette 由 tokio reaper 收割）；
+  成功路径 driver 归还，随函数返回 Drop。无常驻句柄、无残留进程。
 - **重试策略**：工具自身不做静默重试（CLI 无状态，重试应由 agent 决策）；`--retry <n>`
-  （瞬时网络错误重试）整体归 V2（见 §13），V1 不含。
+  （瞬时网络错误重试）整体归 V2（见 §13），V1 不含；V1 已支持引擎降级链（§6.2，验证码/
+  解析失败/低产自动尝试下一引擎）。
 - **错误分类**：`Error` 枚举区分 `Cli / Env / Network / Parse(engine) / Captcha / Timeout`，
   与退出码一一映射（§7.2）。
 
