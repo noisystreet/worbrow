@@ -43,7 +43,7 @@ pub struct SearchParams {
     pub engine: String,
     /// 浏览器后端
     #[schemars(
-        description = "浏览器后端（fake=测试/无需浏览器，firefox=本机 Firefox，chrome=Chrome/Edge 待实现）",
+        description = "浏览器后端（fake=测试/无需浏览器，firefox=本机 Firefox，chrome=Chrome/Edge）",
         default = "default_browser"
     )]
     #[serde(default = "default_browser")]

@@ -1,7 +1,8 @@
 //! 浏览器后端：自研 CDP（Chrome/Edge）与 Marionette（Firefox）双协议（docs/adr/0002-browser-driver-protocols.md）。
 //!
 //! Marionette 后端（Firefox）V1 已实现（TCP 帧协议，见 marionette.rs）；CDP 后端（Chrome/Edge）
-//! 待实现（WebSocket，复用 `jsonrpc` 消息类型）。两个后端共用二进制发现 `discovery`；`fake` 供测试。
+//! V1 已实现（WebSocket，复用 `jsonrpc` 消息类型，见 cdp.rs）。两个后端共用二进制发现
+//! `discovery`；`fake` 供测试。
 
 pub mod cdp;
 pub mod discovery;
@@ -38,7 +39,7 @@ impl fmt::Display for BrowserKind {
 
 /// 后端注册表：`--browser` 参数值 → `Box<dyn BrowserDriver>`。
 ///
-/// Firefox（Marionette）V1 已实现；Chrome（CDP）为待实现桩（design.md §6.5 / §10.2）。
+/// Firefox（Marionette）与 Chrome（CDP）V1 均已实现（design.md §6.5 / §10.2）。
 pub async fn resolve(kind: BrowserKind) -> Result<Box<dyn BrowserDriver>, Error> {
     match kind {
         // fake：冒烟/测试用，返回可解析的模拟结果页（SMOKE_HTML），非空页面

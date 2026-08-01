@@ -60,13 +60,6 @@ fn unknown_engine_is_cli_error() {
     assert_eq!(code, 2); // clap 参数解析失败
     assert!(out.is_empty() || out.contains("error")); // clap 错误走 stderr，stdout 为空
 }
-
-#[test]
-fn chrome_backend_reports_not_implemented() {
-    // CDP 后端未实现 → 显式 --browser chrome 时错误 JSON 包 + exit 1
-    let (code, out) = run(&["--browser", "chrome", "--json", "rust"]);
-    assert_eq!(code, 1);
-    let json = parse_json(&out);
-    assert_eq!(json["schema_version"], 1);
-    assert_eq!(json["error"]["code"], "not_implemented");
-}
+// 注：CDP（chrome）后端 V1 已实现——协议正确性由 `src/drivers/cdp.rs` 单测（mock WebSocket）
+// 与 `tests/cdp_smoke.rs` 真机冒烟（#[ignore]）覆盖；`--browser chrome` 在有/无 Chrome 的
+// 环境下退出码不同（真实搜索/未找到二进制），不做 CLI 级断言。
