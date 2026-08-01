@@ -235,6 +235,7 @@ pub struct SearchResult {
     pub published_at: Option<String>, // 发布日期（摘要尽力提取；格式随引擎变化）
     pub is_ad: bool,          // 广告位结果（Bing 选择器已排除恒 false；DDG 标记）
     pub url_resolved: bool,   // 是否已解跳转（uddg/ck-a 展开为真实目标）
+    pub result_kind: ResultKind, // web/dictionary/translation（URL 特征识别，质量降级信号）
 }
 
 #[derive(Serialize)]

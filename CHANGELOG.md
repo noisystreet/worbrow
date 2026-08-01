@@ -6,6 +6,12 @@
 
 ### Added
 
+- **结果质量信号与降级链增强（P1）**：`SearchResult` 新增 `result_kind`
+  （web/dictionary/translation，URL 路径/主机特征识别，识别失败回退 `web`）；
+  引擎降级判定升级为按**内容型结果数**（≥3 或集满 max_results），Bing 对
+  `best`/`learn` 等查询返回全词典释义的高产低质结果不再误判满意，自动尝试
+  下一引擎；`meta.low_yield` 语义扩展为"内容型结果不足"（字段与退出码不变，
+  schema v1 只增不改）；agent 可自行过滤词典/翻译噪声
 - **MCP 体验完善（P1）**：`web_search` 新增 `compact` 精简模式（结果仅 rank/title/url，
   省 agent 上下文 token，meta 完整；缓存命中路径同样生效）；新增 `list_engines` 工具
   （列出可用引擎）与 `doctor` 工具（环境自检：浏览器二进制/版本/引擎注册表）——
