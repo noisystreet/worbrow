@@ -81,6 +81,17 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 > 不做：`published_date`（引擎 HTML 日期无稳定选择器、中英文格式不统一，解析脆弱）；
 > `meta.cached/retries`（依赖缓存/重试功能，落地时再增，schema 只增不改允许）。
 
+### P1：引擎可配且可降级（fallback 链）
+
+| 项 | 内容 |
+|---|---|
+| 现状 | `--engine` 单引擎，验证码/解析失败/低产即终止（exit 4 或 low_yield 标志），agent 需自行换引擎重试 |
+| 目标 | `--engine bing,duckduckgo`（逗号分隔 = 尝试顺序）；验证码阻止/解析失败/低产时自动尝试下一引擎；`meta.engine_tried` 记录尝试链（schema v1 只增不改） |
+| 改动点 | ① [app.rs](../src/app.rs)：单引擎流程抽 `search_one`，外层降级循环（captcha 无结果/`EngineFailure` → 换下一个；低产保留候选继续，全低产用最高产候选）；② [cli.rs](../src/cli.rs)/[mcp.rs](../src/mcp.rs)：`engine` 支持逗号分隔；③ [domain.rs](../src/domain.rs) `SearchMeta` 新增 `engine_tried` |
+| 契约影响 | `meta.engine_tried` 新增字段（只增不改）；错误码保持稳定（`captcha`/`parse`，exit 4 冻结）；`low_yield` 保持成功包标志语义（结果可用即不降级为失败） |
+| 验证 | 集成测试：ddg 解析失败→降级 bing 成功（engine_tried 断言）、首引擎成功不降级、全失败返回稳定错误码、低产候选兜底 |
+| 风险 | 降级放大总耗时（全局 timeout 兜底）；同页面多引擎解析差异（fixture 按引擎分开） |
+
 ### P2：新引擎（baidu）
 
 复用 `SearchProvider` 模板 + fixture（见 [CONTRIBUTING.md](../CONTRIBUTING.md) 常见任务）。前置评估：反爬强度、headless 可达性；失败走 `EngineFailure`（exit 4）。若收益不足可推迟或不做。

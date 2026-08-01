@@ -166,7 +166,7 @@ clap derive 定义参数（示意）：
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<query>` | string | 有子命令时省略 | 搜索词 |
-| `--engine` | enum | `bing` | 引擎名（可用：`worbrow list` 查看） |
+| `--engine` | string | `bing` | 引擎名；逗号分隔 = 降级尝试顺序（如 `bing,duckduckgo`；可用：`worbrow list` 查看） |
 | `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，已实现） |
 | `--max-results` | usize | 10 | 返回条数上限 |
 | `--timeout` | secs | 60 | 全流程硬超时 |
@@ -186,15 +186,20 @@ clap derive 定义参数（示意）：
 ```
 run(config) -> Outcome
  1. 解析并校验 query（长度、URL 注入防护）
- 2. engine_registry.resolve(config.engine) → Box<dyn SearchProvider>
+ 2. 引擎顺序解析：config.engine 逗号分隔 = 尝试链（如 "bing,duckduckgo"）
  3. driver_registry.resolve(config.browser) → Box<dyn BrowserDriver>（cdp 或 marionette）
- 4. 包整体 timeout(→ 124)
- 5. 驱动 navigate(provider.result_url(query))
+ 4. 包整体 timeout(→ 124)，内部为引擎降级循环：
+    a. 按序 resolve 引擎 → search_one（5-8 步）
+    b. 成功且非低产（≥3 条）→ 采用，停止
+    c. 低产（<3 条）→ 保留为候选（最高产），继续下一引擎
+    d. 验证码阻止（captcha 且无结果）或解析失败（EngineFailure）→ 继续下一引擎
+    e. 全部尝试完：有候选 → 成功包（low_yield=true）；否则返回最后错误（captcha 优先）
+ 5. search_one：驱动 navigate(provider.result_url(query)) + 翻页聚合
  6. 轮询 wait_for_load（网络 idle 或结果选择器出现，带二级超时）
  7. provider.detect_captcha(html)? → 标记 captcha=true（不中止，见 §9）
- 8. provider.parse(html) → Vec<SearchResult>（截断到 max_results）
+ 8. provider.parse(html) → Vec<SearchResult>（跨页去重合并、截断到 max_results）
  9. 可选 screenshot；关闭浏览器（Drop 保证：浏览器进程随本进程退出回收）
-10. 组装 Outcome{results, meta} → output 序列化
+10. 组装 Outcome{results, meta（engine=最终引擎，engine_tried=尝试链）} → output 序列化
 ```
 
 ### 6.3 领域模型（`domain.rs`）
@@ -227,6 +232,7 @@ pub struct SearchMeta {
     pub low_yield: bool,                    // 结果数低于阈值（<3），提示 agent 结果不可靠
     pub captcha: bool,
     pub engine_error: Option<EngineError>,  // 解析/页结构异常时上报，不为空即结果不可信
+    pub engine_tried: Vec<String>,          // 引擎降级尝试链（含最终采用者）
 }
 ```
 
@@ -311,7 +317,8 @@ pub trait SearchProvider: Send + Sync {
     "pages": 2,
     "low_yield": false,
     "captcha": false,
-    "engine_error": null
+    "engine_error": null,
+    "engine_tried": ["bing"]
   }
 }
 ```
