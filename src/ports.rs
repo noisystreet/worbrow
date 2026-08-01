@@ -23,7 +23,8 @@ pub trait BrowserDriver: Send + Sync {
     async fn wait_for(&mut self, selector: &str, timeout: Duration) -> Result<(), Error>;
     /// 取当前页面 HTML。
     async fn html(&self) -> Result<String, Error>;
-    /// 执行 JS（读取结构化数据、验证码判定等）。
+    /// 执行 JS **表达式**并返回其值（fetch 的 readyState/location.href 用；CDP
+    /// `Runtime.evaluate` 与 Marionette `ExecuteScript` 在各自驱动内对齐同一语义）。
     async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error>;
     /// 保存页面截图（调试）。
     async fn screenshot(&mut self, path: &Path) -> Result<(), Error>;

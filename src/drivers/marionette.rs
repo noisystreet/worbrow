@@ -232,7 +232,9 @@ impl BrowserDriver for MarionetteDriver {
             .transport
             .send(
                 "WebDriver:ExecuteScript",
-                json!({"script": js, "args": [], "newSandbox": false}),
+                // ExecuteScript 需显式 `return` 才返回值；包装为 `return (expr);`
+                // 使 eval 语义与 CDP Runtime.evaluate 对齐：入参为"表达式"，返回其求值结果
+                json!({"script": format!("return ({js});"), "args": [], "newSandbox": false}),
             )
             .await?;
         Ok(r.get("value").cloned().unwrap_or(Value::Null))
