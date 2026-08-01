@@ -3,6 +3,7 @@ name: CI
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
 
 env:
@@ -36,6 +37,20 @@ jobs:
       - name: machete (unused dependencies)
         uses: bnjbvr/cargo-machete@main
 
+  msrv:
+    # 验证声明的最低 Rust 版本（Cargo.toml rust-version = 1.85）确实可编译
+    name: MSRV (1.85) check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@1.85.0
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: check (all features, --locked)
+        run: cargo check --all-features --locked
+
   deb:
     name: deb package
     runs-on: ubuntu-latest
@@ -57,3 +72,29 @@ jobs:
           dpkg-deb --info "$DEB" | sed -n '1,20p'
           dpkg-deb --contents "$DEB" | grep -q '/usr/bin/worbrow'
           echo "deb OK: $DEB"
+
+  release:
+    # 打 v* tag 时创建 GitHub Release，附 deb 产物（依赖 check/msrv/deb 全绿）
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [check, msrv, deb]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - uses: taiki-e/install-action@cargo-deb
+
+      - name: build deb
+        run: cargo deb
+
+      - name: create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: target/debian/*.deb
+          generate_release_notes: true
