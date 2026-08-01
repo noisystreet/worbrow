@@ -31,7 +31,7 @@
 
 ```bash
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity
 cargo test
 cargo deny check
 cargo machete
