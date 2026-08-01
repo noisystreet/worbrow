@@ -72,12 +72,16 @@ pub enum EngineArg {
     /// DuckDuckGo（html 端点）
     #[value(name = "duckduckgo")]
     DuckDuckGo,
+    /// Bing（www.bing.com/search）
+    #[value(name = "bing")]
+    Bing,
 }
 
 impl EngineArg {
     pub fn name(self) -> &'static str {
         match self {
             EngineArg::DuckDuckGo => "duckduckgo",
+            EngineArg::Bing => "bing",
         }
     }
 }

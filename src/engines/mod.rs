@@ -4,19 +4,22 @@
 //! `resolve` 注册一行。引擎 HTML 改版是常态：解析失败经 `EngineFailure` 上报，
 //! 不破坏输出 schema。
 
+pub mod bing;
 pub mod duckduckgo;
 
 use crate::error::Error;
 use crate::ports::SearchProvider;
+use bing::Bing;
 use duckduckgo::DuckDuckGo;
 
 /// 可用引擎列表（`worbrow list` 输出）。
-pub const AVAILABLE: &[&str] = &["duckduckgo"];
+pub const AVAILABLE: &[&str] = &["duckduckgo", "bing"];
 
 /// 引擎注册表：名称 → `Box<dyn SearchProvider>`。
 pub fn resolve(name: &str) -> Result<Box<dyn SearchProvider>, Error> {
     match name {
         "duckduckgo" => Ok(Box::new(DuckDuckGo)),
+        "bing" => Ok(Box::new(Bing)),
         other => Err(Error::Cli(format!(
             "未知引擎: {other}（可用: {}）",
             AVAILABLE.join(", ")

@@ -14,6 +14,9 @@
 
 ### Added
 
+- **Bing 搜索引擎**：`worbrow --engine bing` 支持，复用 Bing 的 HTML 搜索结果页面
+  （`www.bing.com/search?q=`），解析器覆盖 `li.b_algo`/`h2 a`/`.b_caption` 结构；
+  含 6 个单测 + 独立 fixture
 - **Debian 打包（cargo-deb）**：`make deb` 生成 `target/debian/worbrow_*.deb`
   （发布形态启用 mcp feature）；`Recommends: firefox | firefox-esr` 运行时弱依赖；
   CI 新增 deb 构建与内容校验 job
