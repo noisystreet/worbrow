@@ -59,6 +59,8 @@ struct Inner {
 }
 
 /// 进程回收：Drop 时 kill Firefox 子进程并清理临时 profile（design.md §8）。
+/// tokio::process::Child 的 drop 会由 runtime reaper 收割（std Child 才需显式 wait），
+/// 此处 start_kill 发 SIGKILL 即可保证进程终止。
 impl Drop for Inner {
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {

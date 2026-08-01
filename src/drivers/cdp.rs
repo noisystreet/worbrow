@@ -59,11 +59,14 @@ struct CdpInner {
     profile: Option<TempDir>,
 }
 
-/// 进程回收：Drop 时 kill Chrome 子进程并清理临时 user-data-dir（design.md §8）。
+/// 进程回收：Drop 时 kill Chrome 子进程、wait 收割（防 zombie）并清理临时
+/// user-data-dir（design.md §8）。std::process::Child 的 Drop 不做任何事，
+/// 必须显式 kill + wait，否则 MCP 长驻场景会积累僵尸进程。
 impl Drop for CdpInner {
     fn drop(&mut self) {
         if let Some(mut child) = self.child.take() {
             let _ = child.kill();
+            let _ = child.wait();
         }
         // 显式取走 TempDir：其 Drop 会删除临时 user-data-dir
         let _ = self.profile.take();

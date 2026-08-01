@@ -48,6 +48,58 @@ async fn spawn_then_drop_kills_firefox() {
     assert_eq!(firefox_count(), before, "driver drop 后 Firefox 应被清理");
 }
 
+/// 显式取消：abort 持有 driver 的任务 → driver drop → Firefox 进程应被清理。
+#[tokio::test]
+#[ignore = "需要本机 Firefox"]
+async fn abort_cancels_and_kills_browser() {
+    let before = firefox_count();
+    let handle = tokio::spawn(async move {
+        let mut driver = drivers::resolve(BrowserKind::Firefox)
+            .await
+            .expect("spawn 应成功（需要本机 Firefox）");
+        // 长时间"搜索"：仅持有 driver 不返回；被 abort 后 driver 随任务 drop
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let _ = &mut driver;
+    });
+    // 轮询等待 Firefox 进程出现（resolve 可能慢于固定 sleep）
+    let mut spawned = false;
+    for _ in 0..75 {
+        if firefox_count() > before {
+            spawned = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert!(spawned, "spawn 后应有 Firefox 进程（before={before}）");
+    handle.abort();
+    for _ in 0..20 {
+        if firefox_count() <= before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(firefox_count(), before, "任务取消后 Firefox 应被清理");
+}
+
+/// app 超时：全流程 timeout 触发 → driver drop → Firefox 进程应被回收。
+#[tokio::test]
+#[ignore = "需要本机 Firefox"]
+async fn search_timeout_recycles_browser() {
+    let before = firefox_count();
+    let cfg = worbrow::Config::new("rust", "bing", BrowserKind::Firefox)
+        .with_timeout(Duration::from_millis(100))
+        .with_max_results(5);
+    let err = worbrow::run(cfg).await.unwrap_err();
+    assert!(matches!(err, Error::Timeout(_)));
+    for _ in 0..20 {
+        if firefox_count() <= before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(firefox_count(), before, "搜索超时后 Firefox 应被回收");
+}
+
 /// 后端完整链路（无外网依赖）：spawn → navigate(data URL) → wait_for → html → eval → screenshot。
 #[tokio::test]
 #[ignore = "需要本机 Firefox"]

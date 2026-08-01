@@ -48,6 +48,58 @@ async fn spawn_then_drop_kills_chrome() {
     assert_eq!(chrome_count(), before, "driver drop 后 Chrome 应被清理");
 }
 
+/// 显式取消：abort 持有 driver 的任务 → driver drop → Chrome 进程应被清理。
+#[tokio::test]
+#[ignore = "需要本机 Chrome/Chromium ≥ 109"]
+async fn abort_cancels_and_kills_browser() {
+    let before = chrome_count();
+    let handle = tokio::spawn(async move {
+        let mut driver = drivers::resolve(BrowserKind::Chrome)
+            .await
+            .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");
+        // 长时间"搜索"：仅持有 driver 不返回；被 abort 后 driver 随任务 drop
+        tokio::time::sleep(Duration::from_secs(30)).await;
+        let _ = &mut driver;
+    });
+    // 轮询等待 Chrome 进程出现（resolve 可能慢于固定 sleep）
+    let mut spawned = false;
+    for _ in 0..75 {
+        if chrome_count() > before {
+            spawned = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert!(spawned, "spawn 后应有 Chrome 进程（before={before}）");
+    handle.abort();
+    for _ in 0..20 {
+        if chrome_count() <= before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(chrome_count(), before, "任务取消后 Chrome 应被清理");
+}
+
+/// app 超时：全流程 timeout 触发 → driver drop → Chrome 进程应被回收。
+#[tokio::test]
+#[ignore = "需要本机 Chrome/Chromium ≥ 109"]
+async fn search_timeout_recycles_browser() {
+    let before = chrome_count();
+    let cfg = worbrow::Config::new("rust", "bing", BrowserKind::Chrome)
+        .with_timeout(Duration::from_millis(100))
+        .with_max_results(5);
+    let err = worbrow::run(cfg).await.unwrap_err();
+    assert!(matches!(err, Error::Timeout(_)));
+    for _ in 0..20 {
+        if chrome_count() <= before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(chrome_count(), before, "搜索超时后 Chrome 应被回收");
+}
+
 /// 后端完整链路（无外网依赖）：spawn → navigate(data URL) → wait_for → html → eval → screenshot。
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
