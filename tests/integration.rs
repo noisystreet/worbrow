@@ -50,7 +50,12 @@ impl BrowserDriver for FixtureDriver {
 }
 
 fn config(query: &str) -> Config {
-    Config::new(query, "duckduckgo", BrowserKind::Fake)
+    config_with(query, "duckduckgo")
+}
+
+/// 指定引擎的配置（字段已私有化，仅经 builder 构造）。
+fn config_with(query: &str, engine: &str) -> Config {
+    Config::new(query, engine, BrowserKind::Fake)
         .with_max_results(5)
         .with_timeout(Duration::from_secs(5))
         .with_driver(Box::new(FixtureDriver::new(FIXTURE)))
@@ -71,8 +76,7 @@ async fn end_to_end_with_fake_driver_yields_results() {
 
 #[tokio::test]
 async fn max_results_truncates() {
-    let mut cfg = config("rust");
-    cfg.max_results = 2;
+    let cfg = config("rust").with_max_results(2);
     let outcome = app::run(cfg).await.expect("应成功");
     assert_eq!(outcome.results.len(), 2);
     assert!(outcome.meta.low_yield);
@@ -86,8 +90,7 @@ async fn empty_query_is_cli_error() {
 
 #[tokio::test]
 async fn unknown_engine_is_cli_error() {
-    let mut cfg = config("rust");
-    cfg.engine = "google".into();
+    let cfg = config_with("rust", "google");
     let err = app::run(cfg).await.unwrap_err();
     assert!(matches!(err, Error::Cli(_)));
 }
@@ -96,8 +99,7 @@ async fn unknown_engine_is_cli_error() {
 async fn captcha_html_yields_captcha_flag() {
     // 验证码特征词存在但仍有结果：标记 captcha=true，不中止
     let html = format!("<html>anomaly<body>{FIXTURE}</body></html>");
-    let mut cfg = config("rust");
-    cfg.driver = Some(Box::new(FixtureDriver::new(html)));
+    let cfg = config("rust").with_driver(Box::new(FixtureDriver::new(html)));
     let outcome = app::run(cfg).await.expect("应成功");
     assert!(outcome.meta.captcha);
     assert!(!outcome.results.is_empty());
@@ -105,8 +107,7 @@ async fn captcha_html_yields_captcha_flag() {
 
 #[tokio::test]
 async fn timeout_returns_timeout_error() {
-    let mut cfg = config("rust");
-    cfg.timeout = Duration::from_millis(1);
+    let cfg = config("rust").with_timeout(Duration::from_millis(1));
     // FakeDriver 不阻塞，但超时语义应正确映射
     let outcome = app::run(cfg).await;
     // FakeDriver 瞬时完成，超时未必触发；断言无 panic 即可
@@ -142,9 +143,9 @@ impl BrowserDriver for SlowDriver {
 
 #[tokio::test]
 async fn slow_driver_triggers_timeout_error() {
-    let mut cfg = config("rust");
-    cfg.timeout = Duration::from_millis(100);
-    cfg.driver = Some(Box::new(SlowDriver));
+    let cfg = config("rust")
+        .with_timeout(Duration::from_millis(100))
+        .with_driver(Box::new(SlowDriver));
     let err = app::run(cfg).await.unwrap_err();
     assert!(matches!(err, Error::Timeout(_)));
     // 退出码契约：超时 = 124（design.md §7.2）

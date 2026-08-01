@@ -4,10 +4,9 @@
 
 use worbrow::app::Config;
 use worbrow::error::{EngineFailure, Error};
-use worbrow::ports::SearchProvider;
 use worbrow::{
     BrowserKind, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS, EngineError,
-    SearchMeta, SearchQuery, SearchResult,
+    SearchMeta, SearchProvider, SearchQuery, SearchResult,
 };
 
 /// 编译期可命名性（P0 补漏项）：`EngineError`/`SearchResult`/`SearchMeta`

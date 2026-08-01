@@ -67,6 +67,10 @@ impl Error {
 }
 
 /// 引擎解析/页面结构异常（适配器侧构造）。
+///
+/// 与 [`crate::domain::EngineError`] 语义不同：本类型是解析失败的错误（经
+/// [`Error::Engine`] 映射为 exit 4）；`EngineError` 是搜索结果元信息
+/// （`meta.engine_error`，成功包中随结果返回）。
 #[derive(Debug, Error)]
 #[error("{message} (code: {code})")]
 pub struct EngineFailure {

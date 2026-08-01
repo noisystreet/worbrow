@@ -21,18 +21,19 @@ pub const LOW_YIELD_THRESHOLD: usize = 3;
 /// （design.md §6.2 二级超时）。
 pub const WAIT_BUDGET: Duration = Duration::from_secs(10);
 
+/// 搜索配置（ADR-006 公开面；字段私有，构造与修改只经 [`Config::new`]/builder，保证不变量）。
 pub struct Config {
-    pub query: String,
-    pub engine: String,
-    pub browser: BrowserKind,
-    pub max_results: usize,
-    pub timeout: Duration,
-    pub screenshot: Option<PathBuf>,
-    pub dump_html: Option<PathBuf>,
+    query: String,
+    engine: String,
+    browser: BrowserKind,
+    max_results: usize,
+    timeout: Duration,
+    screenshot: Option<PathBuf>,
+    dump_html: Option<PathBuf>,
     /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
-    pub driver: Option<Box<dyn BrowserDriver>>,
+    driver: Option<Box<dyn BrowserDriver>>,
     /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
-    pub provider: Option<Box<dyn SearchProvider>>,
+    provider: Option<Box<dyn SearchProvider>>,
 }
 
 impl Config {

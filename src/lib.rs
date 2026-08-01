@@ -12,6 +12,19 @@
 //! `ports` 为包内服务模块（`resolve` 等为内部服务入口，bin 与集成测试使用）；
 //! `domain`/`extract` 与适配器实现（cdp/marionette/fake/bing 等）为内部细节，
 //! 不属稳定 API。
+//!
+//! # 快速开始
+//!
+//! ```rust
+//! use worbrow::{BrowserKind, Config, search};
+//!
+//! // fake 浏览器后端无需真实浏览器，便于在测试/示例中快速验证全链路
+//! let outcome = search(Config::new("rust async", "bing", BrowserKind::Fake)).unwrap();
+//! assert!(!outcome.results.is_empty());
+//! ```
+//!
+//! 自定义引擎（无需复制 `run` 编排）：实现 [`SearchProvider`] 并经
+//! [`Config::with_provider`] 注入。更多示例见 `examples/`。
 
 pub mod app;
 pub(crate) mod domain;
@@ -28,4 +41,6 @@ pub(crate) mod extract;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod output;
+pub use output::{ErrorBody, ErrorPayload, SCHEMA_VERSION, SuccessPayload};
 pub mod ports;
+pub use ports::{BrowserDriver, SearchProvider};
