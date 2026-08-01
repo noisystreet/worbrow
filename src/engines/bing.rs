@@ -1,8 +1,9 @@
 //! Bing 适配器：URL 直访 + HTML 解析。
 //!
 //! Bing 搜索结果 HTML 结构相对稳定：结果容器 `li.b_algo`，标题 `h2 a`，摘要
-//! `.b_caption`（或 `p.b_lineclamp2`）。Bing 的搜索结果链接为直接 URL（无跳转
-//! 参数），无需像 DDG 那样展开 uddg 重定向。
+//! `.b_caption`（或 `p.b_lineclamp2`）。Bing 结果链接可能是直接 URL，也可能是
+//! `www.bing.com/ck/a` 点击追踪链（`u` 参数 base64 编码目标），经
+//! `extract::normalize_url` 尽力展开（解码失败保持原样）。
 //!
 //! 引擎改版时更新本文件并同步 `tests/fixtures/bing.html`。
 
@@ -11,7 +12,7 @@ use url::Url;
 
 use crate::domain::{SearchQuery, SearchResult};
 use crate::error::EngineFailure;
-use crate::extract::clean_text;
+use crate::extract::{clean_text, normalize_url};
 use crate::ports::SearchProvider;
 
 /// Bing 搜索 URL（html 端点）。
@@ -65,7 +66,7 @@ impl SearchProvider for Bing {
             let url = link
                 .value()
                 .attr("href")
-                .map(|s| s.to_string())
+                .map(normalize_url)
                 .unwrap_or_default();
             let snippet_text = node
                 .select(&caption)
@@ -142,6 +143,22 @@ mod tests {
         assert!(Bing.page_url(&q, 2).as_str().contains("first=10"));
         // 第 1 页：无 first 参数（与 result_url 一致）
         assert!(!Bing.page_url(&q, 1).as_str().contains("first="));
+    }
+
+    #[test]
+    fn parse_expands_ck_redirect_url() {
+        let html = r#"<html><body><ol id="b_results">
+          <li class="b_algo">
+            <h2><a href="https://www.bing.com/ck/a?!&p=abc&u=a1aHR0cHM6Ly9sb3BlemNhc3Ryb21pbC5jb20v">目标站</a></h2>
+            <div class="b_caption"><p>摘要</p></div>
+          </li>
+        </ol></body></html>"#;
+        let results = Bing.parse(html).expect("应可解析");
+        assert_eq!(results.len(), 1);
+        // ck/a 追踪链展开为真实目标 URL，domain/https 取自展开结果
+        assert_eq!(results[0].url, "https://lopezcastromil.com/");
+        assert_eq!(results[0].domain, "lopezcastromil.com");
+        assert!(results[0].https);
     }
 
     #[test]
