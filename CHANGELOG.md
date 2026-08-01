@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **库 API**：`app::run_sync`（同步搜索入口，内部管理 tokio runtime）与
+  `app::DoctorReport`/`BackendStatus`（结构化环境自检）；CLI 改为薄封装
+  （参数解析 + 渲染，业务逻辑下沉库层）
+
 ### Changed
 
 - **MSRV 提升至 1.97**（原 1.85）：依赖链真实要求 rustc ≥ 1.88（darling/ICU），

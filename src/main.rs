@@ -5,7 +5,7 @@ use std::process::ExitCode;
 use clap::Parser;
 use worbrow::app::{self, Config};
 use worbrow::cli::{BrowserArg, Cli, Command, LogLevelArg};
-use worbrow::drivers::{self, BrowserKind};
+use worbrow::drivers::BrowserKind;
 use worbrow::engines;
 use worbrow::error::Error;
 use worbrow::output;
@@ -60,16 +60,8 @@ fn run_cli() -> ExitCode {
         driver: None,
     };
 
-    let runtime = match tokio::runtime::Runtime::new() {
-        Ok(rt) => rt,
-        Err(e) => {
-            return finish(
-                &Err(Error::Internal(format!("tokio runtime 初始化失败: {e}"))),
-                json,
-            );
-        }
-    };
-    finish(&runtime.block_on(app::run(config)), json)
+    // 同步入口：内部管理 tokio runtime（CLI 保持薄封装）
+    finish(&app::run_sync(config), json)
 }
 
 /// 输出收口：`--json` → 契约包；否则人读文本。退出码按 §7.2 映射。
@@ -99,35 +91,35 @@ fn finish(result: &Result<app::Outcome, Error>, json: bool) -> ExitCode {
 /// `worbrow doctor`：环境自检（design.md §10）。
 fn doctor() -> ExitCode {
     println!("=== worbrow doctor ===");
+    let report = app::DoctorReport::collect();
     println!("引擎注册表:");
-    for name in engines::AVAILABLE {
+    for name in &report.engines {
         println!("  - {name}");
     }
     println!("浏览器后端:");
-    println!("  - fake: 可用（测试）");
-    match drivers::discovery::find_browser(BrowserKind::Chrome) {
-        Ok(p) => {
-            let version = drivers::discovery::browser_major_version(&p)
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "未知".into());
-            println!(
-                "  - chrome (CDP): 已实现（V1），二进制: {}（主版本 {version}）",
-                p.display()
-            );
+    for backend in &report.backends {
+        match backend.kind {
+            BrowserKind::Fake => println!("  - fake: 可用（测试）"),
+            BrowserKind::Chrome | BrowserKind::Firefox => {
+                let label = match backend.kind {
+                    BrowserKind::Chrome => "chrome (CDP)",
+                    _ => "firefox (Marionette)",
+                };
+                match (&backend.binary, backend.major_version) {
+                    (Some(p), Some(v)) => println!(
+                        "  - {label}: 已实现（V1），二进制: {}（主版本 {v}）",
+                        p.display()
+                    ),
+                    (Some(p), None) => {
+                        println!("  - {label}: 已实现（V1），二进制: {}", p.display())
+                    }
+                    (None, _) => println!(
+                        "  - {label}: 不可用 - {}",
+                        backend.error.as_deref().unwrap_or("未知原因")
+                    ),
+                }
+            }
         }
-        Err(e) => println!("  - chrome (CDP): 不可用 - {e}"),
-    }
-    match drivers::discovery::find_browser(BrowserKind::Firefox) {
-        Ok(p) => {
-            let version = drivers::discovery::browser_major_version(&p)
-                .map(|v| v.to_string())
-                .unwrap_or_else(|| "未知".into());
-            println!(
-                "  - firefox (Marionette): 已实现（V1），二进制: {}（主版本 {version}）",
-                p.display()
-            );
-        }
-        Err(e) => println!("  - firefox (Marionette): 不可用 - {e}"),
     }
     println!("=== done ===");
     ExitCode::SUCCESS
