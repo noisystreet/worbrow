@@ -6,7 +6,7 @@
 
 Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，Firefox 走 Marionette，协议层自研）在通用搜索引擎上执行搜索，输出稳定 JSON 契约供 AI agent 以子进程方式调用。
 
-架构设计与决策见 [docs/design.md](docs/design.md)。
+架构设计与决策见 [docs/design.md](docs/design.md)；功能路线见 [docs/roadmap.md](docs/roadmap.md)。
 
 ## 快速开始
 
