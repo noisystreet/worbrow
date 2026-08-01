@@ -31,6 +31,10 @@ pub struct SearchResult {
 }
 
 /// 引擎侧可上报的结构化异常：不为空即结果不可信（design.md §7.1）。
+///
+/// 与 [`crate::error::EngineFailure`] 语义不同：本类型是搜索结果元信息
+/// （`meta.engine_error`，随成功包返回）；`EngineFailure` 是适配器解析失败时
+/// 构造的错误（经 [`crate::error::Error::Engine`] 映射为 exit 4）。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct EngineError {
     pub code: String,
