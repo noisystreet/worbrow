@@ -22,7 +22,7 @@ cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # 翻页聚合 + 语言/地域
 cargo run -- "rust" --freshness week --safesearch strict                       # 时间过滤 + 安全搜索
 cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # 站点/文件类型过滤
-cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低产时自动尝试下一个）
+cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低质/低产时自动尝试下一个）
 cargo run -- "rust" --retry 2                  # 瞬时网络错误退避重试（指数退避封顶 8s）
 ```
 
@@ -135,7 +135,7 @@ worbrow "rust 异步" --engine bing --max-results 8 --timeout 60 --json
   "results": [{ "rank": 1, "title": "…", "url": "https://…", "snippet": "…",
                 "domain": "example.com", "https": true,
                 "published_at": "2025年5月25日", "is_ad": false,
-                "url_resolved": true }],
+                "url_resolved": true, "result_kind": "web" }],
   "meta": { "engine": "bing", "started_at": "…", "elapsed_ms": 1200,
             "result_count": 3, "pages": 1, "low_yield": false,
             "captcha": false, "engine_error": null,
