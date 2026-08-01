@@ -10,7 +10,7 @@ use chrono::Utc;
 use tokio::time::timeout;
 
 use crate::SearchResult;
-use crate::domain::{BrowserKind, SearchMeta, SearchQuery};
+use crate::domain::{BrowserKind, Freshness, SafesearchLevel, SearchMeta, SearchQuery};
 use crate::engines;
 use crate::error::Error;
 use crate::ports::{BrowserDriver, SearchProvider};
@@ -37,6 +37,14 @@ pub struct Config {
     region: Option<String>,
     /// 翻页聚合页数（`SearchQuery.pages`）；1 = 仅首页。
     pages: usize,
+    /// 时间过滤窗口（`SearchQuery.freshness`）；`None` = 不限时间（引擎默认）。
+    freshness: Option<Freshness>,
+    /// 安全搜索级别（`SearchQuery.safesearch`）；`None` = 引擎默认。
+    safesearch: Option<SafesearchLevel>,
+    /// 站点过滤（`SearchQuery.site`，query 级 `site:` 语法）；`None` = 不限站点。
+    site: Option<String>,
+    /// 文件类型过滤（`SearchQuery.filetype`，query 级 `filetype:` 语法）；`None` = 不限类型。
+    filetype: Option<String>,
     /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
     driver: Option<Box<dyn BrowserDriver>>,
     /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
@@ -58,6 +66,10 @@ impl Config {
             lang: None,
             region: None,
             pages: 1,
+            freshness: None,
+            safesearch: None,
+            site: None,
+            filetype: None,
             driver: None,
             provider: None,
         }
@@ -110,6 +122,30 @@ impl Config {
     /// 翻页聚合页数（≥1，clamp；1 = 仅首页）。
     pub fn with_pages(mut self, pages: usize) -> Self {
         self.pages = pages.max(1);
+        self
+    }
+
+    /// 时间过滤窗口（如 `Freshness::Week`；`None` = 不限时间，引擎默认）。
+    pub fn with_freshness(mut self, freshness: Option<Freshness>) -> Self {
+        self.freshness = freshness;
+        self
+    }
+
+    /// 安全搜索级别（如 `SafesearchLevel::Strict`；`None` = 引擎默认）。
+    pub fn with_safesearch(mut self, safesearch: Option<SafesearchLevel>) -> Self {
+        self.safesearch = safesearch;
+        self
+    }
+
+    /// 站点过滤（如 `"doc.rust-lang.org"`，query 级 `site:` 语法；`None` = 不限站点）。
+    pub fn with_site(mut self, site: Option<String>) -> Self {
+        self.site = site;
+        self
+    }
+
+    /// 文件类型过滤（如 `"pdf"`，query 级 `filetype:` 语法；`None` = 不限类型）。
+    pub fn with_filetype(mut self, filetype: Option<String>) -> Self {
+        self.filetype = filetype;
         self
     }
 
@@ -251,6 +287,10 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
         lang: config.lang.clone(),
         region: config.region.clone(),
         pages: config.pages.max(1),
+        freshness: config.freshness,
+        safesearch: config.safesearch,
+        site: config.site.clone(),
+        filetype: config.filetype.clone(),
     };
 
     // 4-8. 包整体硬超时：注入引擎单引擎（无降级）；否则内置注册表降级循环

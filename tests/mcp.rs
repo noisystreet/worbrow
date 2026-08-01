@@ -260,6 +260,98 @@ async fn tools_call_unknown_tool_is_protocol_error() {
     client.kill().await;
 }
 
+#[tokio::test]
+async fn tools_call_accepts_search_params() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    // 搜索参数补全：freshness/safesearch/site/filetype 合法值走 fake 路径成功
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "web_search",
+                "arguments": {
+                    "query": "rust",
+                    "browser": "fake",
+                    "max_results": 3,
+                    "timeout": 10,
+                    "freshness": "week",
+                    "safesearch": "moderate",
+                    "site": "doc.rust-lang.org",
+                    "filetype": "pdf"
+                }
+            }),
+        )
+        .await;
+
+    assert!(
+        resp.get("error").is_none(),
+        "tools/call 不应有协议错误（实际: {resp}）"
+    );
+    assert_eq!(resp["result"]["isError"], serde_json::Value::Bool(false));
+    let content = resp["result"]["content"]
+        .as_array()
+        .unwrap_or_else(|| panic!("result 应含 content（实际: {resp}）"));
+    let text = content
+        .iter()
+        .find(|c| c["type"] == "text")
+        .and_then(|c| c["text"].as_str())
+        .unwrap_or_else(|| panic!("content 应含 text（实际: {content:?}）"));
+    let payload: Value = serde_json::from_str(text).expect("工具输出应是 JSON");
+    assert_eq!(payload["schema_version"], 1);
+    assert_eq!(payload["query"], "rust"); // query 字段保留原始 text（site/filetype 不进 query）
+    client.kill().await;
+}
+
+#[tokio::test]
+async fn tools_call_rejects_invalid_freshness() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    // 非法 freshness → 工具级错误（isError=true，用户可见）
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "web_search",
+                "arguments": { "query": "x", "browser": "fake", "freshness": "decade" }
+            }),
+        )
+        .await;
+
+    assert!(
+        resp.get("error").is_none(),
+        "非法 freshness 是工具级错误（实际: {resp}）"
+    );
+    assert_eq!(resp["result"]["isError"], true);
+    client.kill().await;
+}
+
+#[tokio::test]
+async fn tools_call_rejects_invalid_safesearch() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    // 非法 safesearch → 工具级错误（isError=true，用户可见）
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "web_search",
+                "arguments": { "query": "x", "browser": "fake", "safesearch": "extreme" }
+            }),
+        )
+        .await;
+
+    assert!(
+        resp.get("error").is_none(),
+        "非法 safesearch 是工具级错误（实际: {resp}）"
+    );
+    assert_eq!(resp["result"]["isError"], true);
+    client.kill().await;
+}
+
 /// 空闲超时：无任何请求时 server 应在超时后自动退出（exit 0），不留残留进程。
 /// 关键：stdin 保持打开（writer 移出后不 drop），验证触发因素是"空闲"而非"EOF"。
 #[tokio::test]

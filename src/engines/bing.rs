@@ -27,12 +27,24 @@ impl SearchProvider for Bing {
 
     fn result_url(&self, q: &SearchQuery) -> Url {
         let mut url = Url::parse(RESULT_URL).expect("静态 URL 应合法");
-        url.query_pairs_mut().append_pair("q", &q.text);
+        // q 用 engine_text：原 text 追加 site:/filetype:（输出契约的 query 字段仍保留原始 text）
+        url.query_pairs_mut().append_pair("q", &q.engine_text());
         if let Some(lang) = &q.lang {
             url.query_pairs_mut().append_pair("setlang", lang);
         }
         if let Some(region) = &q.region {
             url.query_pairs_mut().append_pair("mkt", region);
+        }
+        if let Some(freshness) = q.freshness {
+            // `qft=+filterui:age-lt<sec>`：Bing 时间过滤参数
+            url.query_pairs_mut().append_pair(
+                "qft",
+                &format!("+filterui:age-lt{}", freshness.bing_seconds()),
+            );
+        }
+        if let Some(safesearch) = q.safesearch {
+            url.query_pairs_mut()
+                .append_pair("adlt", safesearch.bing_param());
         }
         url
     }
@@ -128,12 +140,42 @@ mod tests {
             lang: Some("zh-hans".into()),
             region: Some("zh-CN".into()),
             pages: 1,
+            freshness: Some(crate::domain::Freshness::Week),
+            safesearch: Some(crate::domain::SafesearchLevel::Strict),
+            site: Some("doc.rust-lang.org".into()),
+            filetype: None,
         };
         let url = Bing.result_url(&q);
         assert_eq!(url.host_str(), Some("www.bing.com"));
-        assert!(url.as_str().contains("q=rust+%E5%BC%82%E6%AD%A5"));
+        // q 保留原始 text + 追加 site:（engine_text 语义）
+        assert!(
+            url.as_str()
+                .contains("q=rust+%E5%BC%82%E6%AD%A5+site%3Adoc.rust-lang.org")
+        );
         assert!(url.as_str().contains("setlang=zh-hans"));
         assert!(url.as_str().contains("mkt=zh-CN"));
+        // 时间过滤 qft + 安全搜索 adlt（strict → Bing strict）
+        assert!(url.as_str().contains("qft=%2Bfilterui%3Aage-lt604800"));
+        assert!(url.as_str().contains("adlt=strict"));
+    }
+
+    #[test]
+    fn result_url_appends_filetype() {
+        let q = SearchQuery {
+            text: "rust".into(),
+            max_results: 10,
+            lang: None,
+            region: None,
+            pages: 1,
+            freshness: None,
+            safesearch: Some(crate::domain::SafesearchLevel::Moderate),
+            site: None,
+            filetype: Some("pdf".into()),
+        };
+        let url = Bing.result_url(&q);
+        assert!(url.as_str().contains("q=rust+filetype%3Apdf"));
+        // moderate 映射 Bing strict（Bing 仅 off/strict 两级）
+        assert!(url.as_str().contains("adlt=strict"));
     }
 
     #[test]
@@ -144,6 +186,10 @@ mod tests {
             lang: None,
             region: None,
             pages: 2,
+            freshness: None,
+            safesearch: None,
+            site: None,
+            filetype: None,
         };
         // 第 2 页：first=10（每页 10 条）
         assert!(Bing.page_url(&q, 2).as_str().contains("first=10"));

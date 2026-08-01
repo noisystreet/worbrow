@@ -24,10 +24,19 @@ impl SearchProvider for DuckDuckGo {
 
     fn result_url(&self, q: &SearchQuery) -> Url {
         let mut url = Url::parse(RESULT_URL).expect("静态 URL 应合法");
-        url.query_pairs_mut().append_pair("q", &q.text);
+        // q 用 engine_text：原 text 追加 site:/filetype:
+        url.query_pairs_mut().append_pair("q", &q.engine_text());
         // DDG 无独立语言参数，地域经 `kl`（如 zh-CN）
         if let Some(region) = &q.region {
             url.query_pairs_mut().append_pair("kl", region);
+        }
+        if let Some(freshness) = q.freshness {
+            url.query_pairs_mut()
+                .append_pair("df", freshness.ddg_param());
+        }
+        if let Some(safesearch) = q.safesearch {
+            url.query_pairs_mut()
+                .append_pair("kp", safesearch.ddg_param());
         }
         url
     }
@@ -118,11 +127,39 @@ mod tests {
             lang: None,
             region: Some("zh-CN".into()),
             pages: 1,
+            freshness: Some(crate::domain::Freshness::Month),
+            safesearch: Some(crate::domain::SafesearchLevel::Moderate),
+            site: Some("github.com".into()),
+            filetype: None,
         };
         let url = DuckDuckGo.result_url(&q);
         assert_eq!(url.host_str(), Some("html.duckduckgo.com"));
-        assert!(url.as_str().contains("q=rust+%E5%BC%82%E6%AD%A5"));
+        assert!(
+            url.as_str()
+                .contains("q=rust+%E5%BC%82%E6%AD%A5+site%3Agithub.com")
+        );
         assert!(url.as_str().contains("kl=zh-CN"));
+        // 时间过滤 df + 安全搜索 kp
+        assert!(url.as_str().contains("df=m"));
+        assert!(url.as_str().contains("kp=1"));
+    }
+
+    #[test]
+    fn result_url_appends_filetype_and_strict() {
+        let q = SearchQuery {
+            text: "rust".into(),
+            max_results: 10,
+            lang: None,
+            region: None,
+            pages: 1,
+            freshness: None,
+            safesearch: Some(crate::domain::SafesearchLevel::Strict),
+            site: None,
+            filetype: Some("md".into()),
+        };
+        let url = DuckDuckGo.result_url(&q);
+        assert!(url.as_str().contains("q=rust+filetype%3Amd"));
+        assert!(url.as_str().contains("kp=2"));
     }
 
     #[test]
@@ -133,6 +170,10 @@ mod tests {
             lang: None,
             region: None,
             pages: 2,
+            freshness: None,
+            safesearch: None,
+            site: None,
+            filetype: None,
         };
         // 第 2 页：s=30（DDG html 每页 30 条）
         assert!(DuckDuckGo.page_url(&q, 2).as_str().contains("s=30"));

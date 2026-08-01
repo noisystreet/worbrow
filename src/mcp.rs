@@ -21,7 +21,7 @@ use rmcp::{
 use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::app;
-use crate::domain::BrowserKind;
+use crate::domain::{BrowserKind, Freshness, SafesearchLevel};
 use crate::error::Error;
 
 /// MCP server：`web_search` 工具的唯一宿主。
@@ -73,6 +73,34 @@ pub struct SearchParams {
     )]
     #[serde(default = "default_pages")]
     pub pages: usize,
+    /// 时间过滤窗口（day|week|month|year）
+    #[schemars(
+        description = "时间过滤窗口（可选: day/week/month/year；缺省 = 不限时间）",
+        default = "default_none"
+    )]
+    #[serde(default = "default_none")]
+    pub freshness: Option<String>,
+    /// 安全搜索级别（off|moderate|strict）
+    #[schemars(
+        description = "安全搜索级别（可选: off/moderate/strict；缺省 = 引擎默认）",
+        default = "default_none"
+    )]
+    #[serde(default = "default_none")]
+    pub safesearch: Option<String>,
+    /// 站点过滤（query 级 site: 语法）
+    #[schemars(
+        description = "站点过滤（可选，如 doc.rust-lang.org；query 级 site: 语法）",
+        default = "default_none"
+    )]
+    #[serde(default = "default_none")]
+    pub site: Option<String>,
+    /// 文件类型过滤（query 级 filetype: 语法）
+    #[schemars(
+        description = "文件类型过滤（可选，如 pdf；query 级 filetype: 语法）",
+        default = "default_none"
+    )]
+    #[serde(default = "default_none")]
+    pub filetype: Option<String>,
     /// 全流程硬超时（秒）
     #[schemars(
         description = "全流程硬超时秒数（默认 60）",
@@ -106,6 +134,10 @@ fn default_pages() -> usize {
     1
 }
 
+fn default_none() -> Option<String> {
+    None
+}
+
 fn default_timeout_secs() -> u64 {
     crate::domain::DEFAULT_TIMEOUT_SECS
 }
@@ -118,6 +150,30 @@ impl SearchServer {
                 "不支持的浏览器后端: {s}（支持 fake/firefox/chrome/edge/chromium）"
             ))
         })
+    }
+
+    /// 解析时间过滤窗口（缺省 = None；非法值 → 参数错误，工具级 error）。
+    fn parse_freshness(s: Option<&str>) -> Result<Option<Freshness>, Error> {
+        match s {
+            None => Ok(None),
+            Some(v) => Freshness::from_arg(v).map(Some).ok_or_else(|| {
+                Error::Cli(format!(
+                    "不支持的 freshness: {v}（支持 day/week/month/year）"
+                ))
+            }),
+        }
+    }
+
+    /// 解析安全搜索级别（缺省 = None；非法值 → 参数错误，工具级 error）。
+    fn parse_safesearch(s: Option<&str>) -> Result<Option<SafesearchLevel>, Error> {
+        match s {
+            None => Ok(None),
+            Some(v) => SafesearchLevel::from_arg(v).map(Some).ok_or_else(|| {
+                Error::Cli(format!(
+                    "不支持的 safesearch: {v}（支持 off/moderate/strict）"
+                ))
+            }),
+        }
     }
 }
 
@@ -134,6 +190,14 @@ impl SearchServer {
             Ok(b) => b,
             Err(e) => return CallToolResult::error(vec![ContentBlock::text(e.to_string())]),
         };
+        let freshness = match Self::parse_freshness(params.freshness.as_deref()) {
+            Ok(v) => v,
+            Err(e) => return CallToolResult::error(vec![ContentBlock::text(e.to_string())]),
+        };
+        let safesearch = match Self::parse_safesearch(params.safesearch.as_deref()) {
+            Ok(v) => v,
+            Err(e) => return CallToolResult::error(vec![ContentBlock::text(e.to_string())]),
+        };
 
         let config = app::Config::new(params.query, params.engine, browser)
             .with_max_results(params.max_results)
@@ -141,7 +205,11 @@ impl SearchServer {
             .with_timeout(Duration::from_secs(params.timeout.clamp(1, 300)))
             .with_lang(params.lang)
             .with_region(params.region)
-            .with_pages(params.pages);
+            .with_pages(params.pages)
+            .with_freshness(freshness)
+            .with_safesearch(safesearch)
+            .with_site(params.site)
+            .with_filetype(params.filetype);
 
         match app::run(config).await {
             Ok(outcome) => CallToolResult::success(vec![ContentBlock::text(
