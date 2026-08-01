@@ -75,13 +75,13 @@ impl MarionetteDriver {
     pub async fn spawn() -> Result<Box<dyn BrowserDriver>, Error> {
         let binary = discovery::find_browser(BrowserKind::Firefox)?;
         // 版本矩阵校验（design.md §10.2）：Firefox ≥ 55 才支持 -marionette
-        if let Some(version) = discovery::browser_major_version(&binary) {
-            if version < 55 {
-                return Err(Error::Env(format!(
-                    "Firefox 版本过低（{version} < 55），不支持 -marionette（二进制: {}）",
-                    binary.display()
-                )));
-            }
+        if let Some(version) = discovery::browser_major_version(&binary)
+            && version < 55
+        {
+            return Err(Error::Env(format!(
+                "Firefox 版本过低（{version} < 55），不支持 -marionette（二进制: {}）",
+                binary.display()
+            )));
         }
         let port = pick_free_port()?;
         let profile = create_profile(port)?;

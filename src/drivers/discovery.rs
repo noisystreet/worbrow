@@ -43,14 +43,14 @@ pub fn find_browser(kind: BrowserKind) -> Result<PathBuf, Error> {
     };
 
     // 1. 环境变量显式指定
-    if let Ok(path) = std::env::var(env_var) {
-        if !path.trim().is_empty() {
-            let p = PathBuf::from(path);
-            if p.exists() {
-                return Ok(p);
-            }
-            return Err(Error::Env(format!("{env_var}={} 不存在", p.display())));
+    if let Ok(path) = std::env::var(env_var)
+        && !path.trim().is_empty()
+    {
+        let p = PathBuf::from(path);
+        if p.exists() {
+            return Ok(p);
         }
+        return Err(Error::Env(format!("{env_var}={} 不存在", p.display())));
     }
 
     // 2. PATH 搜索

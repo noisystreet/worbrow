@@ -111,15 +111,15 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
     .await??;
 
     // 9. 可选调试产物（失败仅告警，不影响主流程）
-    if let Some(path) = config.screenshot.as_deref() {
-        if let Err(e) = driver.screenshot(path).await {
-            tracing::warn!("截图保存失败 {path:?}: {e}");
-        }
+    if let Some(path) = config.screenshot.as_deref()
+        && let Err(e) = driver.screenshot(path).await
+    {
+        tracing::warn!("截图保存失败 {path:?}: {e}");
     }
-    if let Some(path) = config.dump_html.as_deref() {
-        if let Err(e) = std::fs::write(path, &html) {
-            tracing::warn!("HTML 保存失败 {path:?}: {e}");
-        }
+    if let Some(path) = config.dump_html.as_deref()
+        && let Err(e) = std::fs::write(path, &html)
+    {
+        tracing::warn!("HTML 保存失败 {path:?}: {e}");
     }
 
     // 10. 组装 Outcome
