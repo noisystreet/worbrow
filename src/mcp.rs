@@ -55,6 +55,24 @@ pub struct SearchParams {
     )]
     #[serde(default = "default_max_results")]
     pub max_results: usize,
+    /// 结果语言（如 zh-hans，Bing setlang）
+    #[schemars(description = "结果语言（可选，如 zh-hans）", default = "default_lang")]
+    #[serde(default = "default_lang")]
+    pub lang: Option<String>,
+    /// 结果地域/市场（如 zh-CN，Bing mkt / DDG kl）
+    #[schemars(
+        description = "结果地域/市场（可选，如 zh-CN）",
+        default = "default_region"
+    )]
+    #[serde(default = "default_region")]
+    pub region: Option<String>,
+    /// 翻页聚合页数（>1 时跨页去重合并）
+    #[schemars(
+        description = "翻页聚合页数（默认 1 = 仅首页）",
+        default = "default_pages"
+    )]
+    #[serde(default = "default_pages")]
+    pub pages: usize,
     /// 全流程硬超时（秒）
     #[schemars(
         description = "全流程硬超时秒数（默认 60）",
@@ -74,6 +92,18 @@ fn default_browser() -> String {
 
 fn default_max_results() -> usize {
     crate::domain::DEFAULT_MAX_RESULTS
+}
+
+fn default_lang() -> Option<String> {
+    None
+}
+
+fn default_region() -> Option<String> {
+    None
+}
+
+fn default_pages() -> usize {
+    1
 }
 
 fn default_timeout_secs() -> u64 {
@@ -108,7 +138,10 @@ impl SearchServer {
         let config = app::Config::new(params.query, params.engine, browser)
             .with_max_results(params.max_results)
             // 防呆：clamp 到 1-300s，避免 agent 传 0 或极端值
-            .with_timeout(Duration::from_secs(params.timeout.clamp(1, 300)));
+            .with_timeout(Duration::from_secs(params.timeout.clamp(1, 300)))
+            .with_lang(params.lang)
+            .with_region(params.region)
+            .with_pages(params.pages);
 
         match app::run(config).await {
             Ok(outcome) => CallToolResult::success(vec![ContentBlock::text(

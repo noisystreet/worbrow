@@ -25,6 +25,20 @@ impl SearchProvider for DuckDuckGo {
     fn result_url(&self, q: &SearchQuery) -> Url {
         let mut url = Url::parse(RESULT_URL).expect("静态 URL 应合法");
         url.query_pairs_mut().append_pair("q", &q.text);
+        // DDG 无独立语言参数，地域经 `kl`（如 zh-CN）
+        if let Some(region) = &q.region {
+            url.query_pairs_mut().append_pair("kl", region);
+        }
+        url
+    }
+
+    fn page_url(&self, q: &SearchQuery, page: usize) -> Url {
+        let mut url = self.result_url(q);
+        if page > 1 {
+            // DDG html 端点每页 30 条，`s` 为起始偏移（30, 60, ...）
+            url.query_pairs_mut()
+                .append_pair("s", &((page - 1) * 30).to_string());
+        }
         url
     }
 
@@ -89,10 +103,28 @@ mod tests {
         let q = SearchQuery {
             text: "rust 异步".into(),
             max_results: 10,
+            lang: None,
+            region: Some("zh-CN".into()),
+            pages: 1,
         };
         let url = DuckDuckGo.result_url(&q);
         assert_eq!(url.host_str(), Some("html.duckduckgo.com"));
         assert!(url.as_str().contains("q=rust+%E5%BC%82%E6%AD%A5"));
+        assert!(url.as_str().contains("kl=zh-CN"));
+    }
+
+    #[test]
+    fn page_url_appends_offset() {
+        let q = SearchQuery {
+            text: "rust".into(),
+            max_results: 10,
+            lang: None,
+            region: None,
+            pages: 2,
+        };
+        // 第 2 页：s=30（DDG html 每页 30 条）
+        assert!(DuckDuckGo.page_url(&q, 2).as_str().contains("s=30"));
+        assert!(!DuckDuckGo.page_url(&q, 1).as_str().contains("s="));
     }
 
     #[test]

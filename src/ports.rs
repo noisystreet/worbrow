@@ -34,6 +34,11 @@ pub trait SearchProvider: Send + Sync {
     fn name(&self) -> &'static str;
     /// URL 直访模板（design.md ADR-003）。
     fn result_url(&self, q: &SearchQuery) -> Url;
+    /// 第 `page` 页 URL（`page >= 2`；默认退化为首页，未实现翻页的引擎无需覆写）。
+    fn page_url(&self, q: &SearchQuery, page: usize) -> Url {
+        let _ = page;
+        self.result_url(q)
+    }
     /// 结果容器选择器（等待加载用）。
     fn result_selector(&self) -> &'static str;
     /// 从页面 HTML 抽取结果；失败返回 `EngineFailure`（由 app 上报为 exit 4）。

@@ -37,6 +37,18 @@ pub struct Cli {
     #[arg(long, default_value_t = worbrow::DEFAULT_TIMEOUT_SECS)]
     pub timeout: u64,
 
+    /// 翻页聚合页数（>1 时跨页去重合并）
+    #[arg(long, default_value_t = 1)]
+    pub pages: usize,
+
+    /// 结果语言（如 zh-hans，Bing setlang）
+    #[arg(long)]
+    pub lang: Option<String>,
+
+    /// 结果地域/市场（如 zh-CN，Bing mkt / DDG kl）
+    #[arg(long)]
+    pub region: Option<String>,
+
     /// JSON 输出（agent 调用必带）
     #[arg(long)]
     pub json: bool,
