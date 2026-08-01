@@ -6,6 +6,11 @@
 
 ### Added
 
+- **网络重试与结果缓存（P1，ADR-008）**：`--retry <n>`（CLI）/`retry`（MCP，封顶 5）
+  对瞬时网络错误指数退避重试（2^(n-1) 秒封顶 8s，计入全局超时预算；验证码/参数错/
+  超时不重试）；MCP 长驻进程内相同请求参数 60s TTL 缓存命中直接返回（`meta.cached`），
+  `no_cache` 参数绕过；`meta.cached`/`meta.retries` 新增（schema v1 只增不改）；
+  CLI 无状态不缓存
 - **MCP 会话池化（P1，ADR-007）**：MCP 长驻进程内复用浏览器会话，消除每次搜索
   spawn 2-5s 开销；`worbrow mcp --max-sessions <n> --session-ttl <sec>`（默认
   1/60s）；空闲会话 TTL 回收、并发上限排队、崩溃会话错误驱动重建；CLI 单次行为

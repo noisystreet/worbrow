@@ -23,6 +23,7 @@ cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   #
 cargo run -- "rust" --freshness week --safesearch strict                       # 时间过滤 + 安全搜索
 cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # 站点/文件类型过滤
 cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低产时自动尝试下一个）
+cargo run -- "rust" --retry 2                  # 瞬时网络错误退避重试（指数退避封顶 8s）
 ```
 
 当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
@@ -46,7 +47,7 @@ cargo build --release
 ```
 
 以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露 `web_search` 工具
-（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype），
+（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache），
 工具结果复用输出契约（schema v1）。
 设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
 （若不需要 MCP：`cargo build --no-default-features`）
@@ -58,6 +59,11 @@ cargo build --release
 `--max-sessions <n>` 并发上限（默认 1 = 串行复用，超限排队）、`--session-ttl <sec>`
 空闲会话回收阈值（默认 60s）；空闲超 TTL 自动回收、崩溃会话自动重建，对 agent 透明
 （schema v1 不变）。设计见 [ADR-007](docs/adr/0007-mcp-session-pool.md)。
+
+**网络重试与结果缓存（ADR-008）**：`retry` 请求参数（默认 0）对瞬时网络错误指数退避
+重试（封顶 8s，计入超时预算）；`meta.retries` 记录实际重试次数。MCP 长驻进程内相同
+请求参数在 60s TTL 内重复调用直接命中缓存（`meta.cached=true`，`elapsed_ms=0`），
+`no_cache` 参数可绕过。CLI `--retry <n>` 同样支持重试（无缓存）。
 
 ## Agent 集成
 
@@ -130,7 +136,7 @@ worbrow "rust 异步" --engine bing --max-results 8 --timeout 60 --json
   "meta": { "engine": "bing", "started_at": "…", "elapsed_ms": 1200,
             "result_count": 3, "pages": 1, "low_yield": false,
             "captcha": false, "engine_error": null,
-            "engine_tried": ["bing"] }
+            "engine_tried": ["bing"], "cached": false, "retries": 0 }
 }
 ```
 

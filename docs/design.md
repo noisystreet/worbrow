@@ -80,6 +80,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-005](adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`worbrow mcp`，rmcp 2.2） | 已接受 |
 | [ADR-006](adr/0006-lib-api-surface.md) | 库 API 公开面 = 类型级顶层 re-export（外部消费者） | 已接受 |
 | [ADR-007](adr/0007-mcp-session-pool.md) | MCP 会话池化（浏览器进程复用 + 空闲 TTL 回收） | 已接受 |
+| [ADR-008](adr/0008-retry-and-cache.md) | 网络重试与结果缓存（`--retry` / MCP 短 TTL 缓存） | 已接受 |
 
 ---
 
@@ -175,6 +176,7 @@ clap derive 定义参数（示意）：
 | `--log-level` | enum | off | stderr 日志级别（error/warn/info/debug/trace） |
 | `--screenshot <path>` | path | 无 | 失败或成功时保存页面截图（调试） |
 | `--dump-html <path>` | path | 无 | 失败或 low_yield 时保存原始 HTML（调试） |
+| `--retry` | usize | 0 | 瞬时网络错误重试次数（指数退避封顶 8s，计入 timeout；ADR-008） |
 | `--connect <cdp-url>` | url | 无 | 连接已运行浏览器（V2 性能演进） |
 
 子命令：`worbrow doctor`（环境自检，§10）、`worbrow list`（列出引擎）。
@@ -331,7 +333,9 @@ pub trait SearchProvider: Send + Sync {
     "low_yield": false,
     "captcha": false,
     "engine_error": null,
-    "engine_tried": ["bing"]
+    "engine_tried": ["bing"],
+    "cached": false,
+    "retries": 0
   }
 }
 ```
@@ -369,9 +373,11 @@ pub trait SearchProvider: Send + Sync {
   **MCP 会话池（ADR-007）例外**：driver 生命周期归 `SessionPool` 管理——借出/归还
   复用浏览器进程；空闲超 TTL 由 reaper 回收、命令错误驱动丢弃重建；MCP 进程退出
   时池 Drop 全量回收（三路径语义不变）。
-- **重试策略**：工具自身不做静默重试（CLI 无状态，重试应由 agent 决策）；`--retry <n>`
-  （瞬时网络错误重试）整体归 V2（见 §13），V1 不含；V1 已支持引擎降级链（§6.2，验证码/
-  解析失败/低产自动尝试下一引擎）。
+- **重试策略**：`--retry <n>`（CLI）与 `retry`（MCP，封顶 5）——仅 `Error::Network`
+  指数退避重试（2^(n-1) 秒封顶 8s），计入全局 timeout 预算；验证码/参数错/超时/
+  引擎解析失败（有降级链）不重试。`meta.retries` 记录实际重试次数（ADR-008）。
+  MCP 长驻另有短 TTL 结果缓存（相同请求参数 60s 内命中，`meta.cached=true`，
+  `no_cache` 逃生阀；仅 MCP 生效，CLI 无状态不缓存）。
 - **错误分类**：`Error` 枚举区分 `Cli / Env / Network / Parse(engine) / Captcha / Timeout`，
   与退出码一一映射（§7.2）。
 

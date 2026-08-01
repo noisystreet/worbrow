@@ -104,16 +104,16 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 风险 | 特征误判（如 wordpress 路径含 word）→ 模式加边界 + 回退 `web` 兜底；误判代价仅"多试一个引擎" |
 | 参考 | 专项规划 [roadmap-result-quality.md](roadmap-result-quality.md)（真实案例、目标/非目标、开放决策） |
 
-### P1：网络重试与结果缓存（`--retry` / TTL 缓存）
+### P1：网络重试与结果缓存（`--retry` / TTL 缓存）—— ✅ 已完成（2026-08，[ADR-008](adr/0008-retry-and-cache.md)）
 
 | 项 | 内容 |
 |---|---|
 | 现状 | 瞬时网络/引擎错误直接失败（exit 4）；MCP 长驻进程内相同 query 重复搜索每次都重跑 |
 | 目标 | `--retry <n>` 瞬时错误退避重试；MCP 进程内相同 query 短 TTL 缓存（去重） |
-| 改动点 | ① [app.rs](../src/app.rs)：失败按错误类型重试（网络/瞬时解析错误，指数退避；验证码/参数错不重试）；② 缓存层（LRU + TTL，仅 MCP 长驻场景生效，CLI 单次无状态不缓存）；③ `SearchMeta` 新增 `cached`/`retries` 字段（schema v1 只增不改） |
-| 契约影响 | `meta.cached`/`meta.retries` 新增字段（只增不改）；`--retry` 为请求参数（CLI/MCP schema 只增） |
-| 验证 | 集成测试：重试计数断言（瞬时失败→重试成功）、缓存命中断言（相同 query 二次调用 cached=true） |
-| 风险 | 缓存时效性（短 TTL，如 30-60s）；重试放大延迟（退避封顶） |
+| 改动点 | ① [app.rs](../src/app.rs) 提取 `search_attempt`/`search_engine_chain`/`handle_engine_result`，仅 `Error::Network` 指数退避重试（2^(n-1) 秒封顶 8s，计入全局 timeout）；② [mcp.rs](../src/mcp.rs) `SearchCache`（LRU + TTL 60s + 容量 128 + `no_cache` 逃生阀）；③ `SearchMeta` 新增 `cached`/`retries`（schema v1 只增不改）；④ CLI `--retry`、MCP `retry`（封顶 5） |
+| 契约影响 | `meta.cached`/`meta.retries` 新增字段（只增不改）；`--retry`/`retry`/`no_cache` 为请求参数（CLI/MCP schema 只增） |
+| 验证 | app 单测（退避序列/瞬时失败重试成功/耗尽返回/验证码不重试）+ MCP 缓存单测（命中/key 区分/TTL/LRU）+ MCP 集成（相同 query 二次 cached=true、no_cache 绕过） |
+| 风险 | 缓存时效性（TTL 60s，命中刷新；`no_cache` 逃生阀）；重试放大延迟（退避封顶 8s + 全局 timeout 兜底） |
 
 ### P1：MCP 体验完善（compact 精简模式 + 工具面）
 
@@ -138,6 +138,7 @@ CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → �
 网络重试与缓存 → MCP 体验完善 →（P2 baidu 视评估）
 
 > 会话复用：已落地（ADR-007，见 §3 P1 章节）。
+> 网络重试与缓存：已落地（ADR-008，见 §3 P1 章节）。
 
 - 每步独立可验证、可回退；完成后同步 `doctor`、README、CHANGELOG
 - 不承诺时间；重要取舍（如 CDP 传输层、会话池默认策略）以 ADR 记录
@@ -155,6 +156,7 @@ CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → �
 2. **会话池默认策略**：CLI 单次搜索（用完即回收）与 MCP 长驻（TTL 空闲回收）是否分策略 →
    倾向 MCP 场景默认启用；默认 `--max-sessions`/`--session-ttl` 取值见
    [roadmap-session-pool.md](roadmap-session-pool.md) §6
-3. **缓存作用域与 TTL**：仅 MCP 长驻场景生效（CLI 单次无状态不缓存）；TTL 默认值（如 30-60s）与
-   `--no-cache` 逃生阀是否必要待定
-4. **重试触发范围**：网络/瞬时解析错误重试；验证码阻止与参数错误不重试（避免无意义放大延迟）
+3. **缓存作用域与 TTL**：✅ 已定——仅 MCP 长驻场景生效（CLI 单次无状态不缓存）；
+   TTL 60s（命中刷新），`no_cache` 逃生阀（ADR-008）
+4. **重试触发范围**：✅ 已定——仅 `Error::Network` 重试（指数退避封顶 8s，计入全局
+   timeout）；验证码/参数错误/超时/引擎解析失败（有降级链）不重试（ADR-008）
