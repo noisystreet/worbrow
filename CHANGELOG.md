@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-01
+
 ### Added
 
 - **正文抓取与结构化提取（P1，ADR-009）**：新增 `worbrow fetch <url>` 子命令与 MCP
@@ -46,6 +48,15 @@
   `--freshness/--safesearch/--site/--filetype` 与 MCP 参数同步（非法枚举值 →
   工具级错误）；输出 `query` 字段保留原始 text（过滤条件由请求参数表达）；schema v1
   无变化（Bing `qft` 实网验证不过滤，详见 roadmap-search-params.md §3 风险）
+
+### Fixed
+
+- **浏览器进程泄漏**：spawn 取消路径丢失 `tokio::process::Child`（`ChildGuard` 兜底
+  kill）+ 会话池 reaper 自持强引用导致池永不 Drop（改 Weak 弱引用）
+- **Marionette eval 表达式语义**：`ExecuteScript` 需显式 `return` 才返回值，裸表达式
+  （`document.readyState`/`location.href`）在 Firefox 下返回 undefined，导致 fetch
+  的 `wait_load` 空转满预算、`meta.final_url` 为 null；包装为 `return (expr);` 对齐
+  CDP `Runtime.evaluate` 语义
 
 ## [0.1.1] - 2026-08-01
 
