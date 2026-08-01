@@ -6,6 +6,12 @@
 
 ### Added
 
+- **库 API 体验完善（P2，ADR-006）**：`Config` 字段私有化（builder 唯一入口，不可绕过
+  clamp 不变量）；`run_sync` 移除、同步入口统一为 `search`；trait（`SearchProvider`/
+  `BrowserDriver`）与契约包类型（`SuccessPayload`/`ErrorPayload`/`SCHEMA_VERSION`）顶层
+  re-export；lib.rs quickstart doc-test + `examples/` 可运行示例；`EngineError` 与
+  `EngineFailure` rustdoc 互链说明语义；README"作为库使用"（`default-features = false`
+  去 MCP 依赖）；CONTRIBUTING 明确 0.x 公开面冻结与变更流程
 - **库 API 公开面收敛为类型级顶层 API（ADR-006）**：`BrowserKind` 上移为顶层类型
   （`worbrow::BrowserKind`）；顶层 re-export `Config`/`Outcome`/`DoctorReport`/`Error`/
   `search`/`DEFAULT_*`；`Config::with_provider` 支持注入自定义引擎（外部无需复制
