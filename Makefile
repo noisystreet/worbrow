@@ -7,7 +7,7 @@ fmt:
 	cargo fmt
 
 lint:
-	cargo clippy --all-targets --all-features -- -D warnings
+	cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity
 
 test:
 	cargo test
