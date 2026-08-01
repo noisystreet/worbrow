@@ -11,7 +11,8 @@ Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，F
 ```bash
 cargo run -- list                    # 列出可用引擎
 cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/后端状态）
-cargo run -- "rust 异步运行时" --json --engine duckduckgo
+cargo run -- "rust 异步运行时" --json   # 默认引擎 bing、默认超时 60s
+cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 ```
 
 当前后端状态：`firefox`（Marionette，自研协议）已实现；`chrome`（CDP）为 V1 待实现桩；
@@ -44,7 +45,7 @@ cargo build --release
 - **stdout** 仅输出 JSON（`--json`），日志全部走 stderr
 - 退出码语义化：`0` 成功 / `2` 参数错 / `3` 环境错 / `4` 搜索失败 / `124` 超时 / `1` 内部错
 - schema 版本化：顶层 `schema_version` 字段，字段只增不改
-- 无交互、硬超时默认 20s
+- 无交互、硬超时默认 60s
 
 示例成功包：
 
@@ -53,7 +54,7 @@ cargo build --release
   "schema_version": 1,
   "query": "rust",
   "results": [{ "rank": 1, "title": "…", "url": "https://…", "snippet": "…" }],
-  "meta": { "engine": "duckduckgo", "started_at": "…", "elapsed_ms": 1200,
+  "meta": { "engine": "bing", "started_at": "…", "elapsed_ms": 1200,
             "result_count": 3, "low_yield": false, "captcha": false, "engine_error": null }
 }
 ```
@@ -76,7 +77,7 @@ make doctor     # 运行 worbrow doctor
 src/
   cli.rs app.rs domain.rs error.rs ports.rs output.rs extract.rs
   drivers/   # jsonrpc(共用框架) · cdp(桩) · marionette(桩) · fake(测试)
-  engines/   # duckduckgo（bing/baidu 见演进路线）
+  engines/   # duckduckgo · bing
 tests/       # 集成测试 + fixtures（离线 HTML golden）
 ```
 

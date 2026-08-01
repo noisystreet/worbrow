@@ -6,6 +6,8 @@
 
 ### Changed
 
+- **默认搜索引擎改为 `bing`**（CLI 与 MCP 工具一致，原 `duckduckgo`）
+- **默认硬超时改为 60s**（原 20s）
 - **默认启用 `mcp` feature**：普通 `cargo build` / `make build` 即含 `worbrow mcp`；
   可用 `--no-default-features` 精简构建
 - **项目更名为 `worbrow`**：Cargo 包/库/二进制统一为 `worbrow`（原 `rplay-search` / `search`）；

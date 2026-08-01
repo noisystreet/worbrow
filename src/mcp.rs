@@ -30,7 +30,7 @@ pub struct SearchParams {
     pub query: String,
     /// 搜索引擎
     #[schemars(
-        description = "搜索引擎（当前支持: duckduckgo）",
+        description = "搜索引擎（当前支持: duckduckgo/bing）",
         default = "default_engine"
     )]
     #[serde(default = "default_engine")]
@@ -51,7 +51,7 @@ pub struct SearchParams {
     pub max_results: usize,
     /// 全流程硬超时（秒）
     #[schemars(
-        description = "全流程硬超时秒数（默认 20）",
+        description = "全流程硬超时秒数（默认 60）",
         default = "default_timeout_secs"
     )]
     #[serde(default = "default_timeout_secs")]
@@ -59,7 +59,7 @@ pub struct SearchParams {
 }
 
 fn default_engine() -> String {
-    "duckduckgo".to_string()
+    "bing".to_string()
 }
 
 fn default_browser() -> String {
@@ -71,7 +71,7 @@ fn default_max_results() -> usize {
 }
 
 fn default_timeout_secs() -> u64 {
-    20
+    60
 }
 
 impl SearchServer {

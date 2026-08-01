@@ -20,7 +20,7 @@ pub struct Cli {
     pub query: Option<String>,
 
     /// 搜索引擎
-    #[arg(long, value_enum, default_value_t = EngineArg::DuckDuckGo)]
+    #[arg(long, value_enum, default_value_t = EngineArg::Bing)]
     pub engine: EngineArg,
 
     /// 浏览器后端
@@ -32,7 +32,7 @@ pub struct Cli {
     pub max_results: usize,
 
     /// 全流程硬超时（秒）
-    #[arg(long, default_value_t = 20)]
+    #[arg(long, default_value_t = 60)]
     pub timeout: u64,
 
     /// JSON 输出（agent 调用必带）

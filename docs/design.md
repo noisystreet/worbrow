@@ -30,7 +30,7 @@
 ## 2. 使用场景：agent 如何调用
 
 ```
-$ worbrow "rust 异步运行时 对比" --engine duckduckgo --max-results 8 --timeout 20 --json
+$ worbrow "rust 异步运行时 对比" --engine bing --max-results 8 --timeout 60 --json
 ```
 
 调用约定（对调用方是**硬契约**）：
@@ -41,7 +41,7 @@ $ worbrow "rust 异步运行时 对比" --engine duckduckgo --max-results 8 --ti
 | stderr | 所有日志 / 警告 / 调试信息（`--log-level`、`RUST_LOG`） |
 | 退出码 | 语义化，见 §7.2；非 0 时 stdout 输出错误 JSON 包 |
 | 无交互 | 不读 stdin、不提示输入、不等待按键 |
-| 必达超时 | `--timeout` 默认 20s；超时返回 124，不留孤儿进程 |
+| 必达超时 | `--timeout` 默认 60s；超时返回 124，不留孤儿进程 |
 
 Agent 侧典型用法：子进程执行 → 读 stdout → 按 `schema_version` 解析 → 检查退出码与
 `meta` 中的 `captcha` / `engine_error` 字段 → 决定重试或换引擎。
@@ -166,10 +166,10 @@ clap derive 定义参数（示意）：
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<query>` | string | 有子命令时省略 | 搜索词 |
-| `--engine` | enum | `duckduckgo` | 引擎名（可用：`worbrow list` 查看） |
+| `--engine` | enum | `bing` | 引擎名（可用：`worbrow list` 查看） |
 | `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，待实现） |
 | `--max-results` | usize | 10 | 返回条数上限 |
-| `--timeout` | secs | 20 | 全流程硬超时 |
+| `--timeout` | secs | 60 | 全流程硬超时 |
 | `--json` | flag | 否 | JSON 输出（agent 调用必带） |
 | `--log-level` | enum | off | stderr 日志级别（error/warn/info/debug/trace） |
 | `--screenshot <path>` | path | 无 | 失败或成功时保存页面截图（调试） |
@@ -295,7 +295,7 @@ pub trait SearchProvider: Send + Sync {
     { "rank": 1, "title": "…", "url": "https://…", "snippet": "…" }
   ],
   "meta": {
-    "engine": "duckduckgo",
+    "engine": "bing",
     "started_at": "2026-07-31T08:00:00Z",
     "elapsed_ms": 1842,
     "result_count": 8,
