@@ -167,7 +167,7 @@ clap derive 定义参数（示意）：
 |---|---|---|---|
 | `<query>` | string | 有子命令时省略 | 搜索词 |
 | `--engine` | enum | `bing` | 引擎名（可用：`worbrow list` 查看） |
-| `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，待实现） |
+| `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，已实现） |
 | `--max-results` | usize | 10 | 返回条数上限 |
 | `--timeout` | secs | 60 | 全流程硬超时 |
 | `--json` | flag | 否 | JSON 输出（agent 调用必带） |
@@ -418,10 +418,9 @@ CI 不依赖真实浏览器，保证可复现。
 
 ## 13. 演进路线
 
-- **V1（MVP，进行中）**：DuckDuckGo 引擎 + Marionette 后端（Firefox）已完成；
+- **V1（MVP，进行中）**：DuckDuckGo/Bing 引擎 + Marionette 后端（Firefox）已完成；
   `--json`/超时/验证码检测/截图/`worbrow doctor` 已就绪；MCP stdio server
-  （`worbrow mcp`，rmcp 2.2，见 ADR-005）已完成。
-  待办：CDP 后端（Chrome/Edge）、Bing 引擎
+  （`worbrow mcp`，rmcp 2.2，见 ADR-005）已完成；CDP 后端（Chrome/Edge）已完成
 - **V2**：百度、Google（预期高拦截，降级为"尽力"）；`--connect` 连接常驻浏览器复用会话；
   结果去重归一化加强；新增 `--retry`（瞬时网络错误重试）；若需网络拦截等深度控制，
   引入 chromiumoxide 作第二 CDP 实现

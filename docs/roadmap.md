@@ -10,7 +10,7 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 当前已稳定：
 
 - **引擎**：duckduckgo、bing（默认）；解析失败走 `EngineFailure`（exit 4）
-- **浏览器后端**：Firefox（Marionette，自研协议，含超时/版本校验/并发隔离）；`fake` 供 CI 冒烟；**Chrome/Edge（CDP）为未实现桩**
+- **浏览器后端**：Firefox（Marionette，自研协议，含超时/版本校验/并发隔离）与 Chrome/Edge（CDP，自研协议）均已实现；`fake` 供 CI 冒烟
 - **MCP**：`web_search` 工具 + 空闲超时（覆盖握手前/后）
 - **契约**：schema v1、退出码语义冻结、stdout 仅 JSON
 
@@ -33,7 +33,10 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 
 ## 3. 方向与优先级
 
-### P0：CDP 后端（Chrome/Edge）
+### P0：CDP 后端（Chrome/Edge）—— ✅ 已完成（2026-08）
+
+> 实施见提交 `feat: Chrome/Edge（CDP）后端`：`drivers/cdp.rs` WebSocket 实现、
+> mock 单测 + `tests/cdp_smoke.rs` 真机冒烟。
 
 | 项 | 内容 |
 |---|---|

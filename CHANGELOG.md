@@ -20,6 +20,11 @@
 
 ### Added
 
+- **Chrome/Edge（CDP）后端 V1**：自研 WebSocket 客户端（tokio-tungstenite + 复用
+  `drivers::jsonrpc` 消息类型），`--browser chrome` / MCP `browser=chrome` 真实搜索；
+  `--remote-debugging-port=0` 随机端口 + stderr 日志发现（消除端口竞态）；命令子集
+  `Target.createTarget/attachToTarget`、`Page.navigate`、`Runtime.evaluate`、
+  `Page.captureScreenshot`；含 mock WebSocket 单测 + 真机冒烟（`tests/cdp_smoke.rs`）
 - **Bing 搜索引擎**：`worbrow --engine bing` 支持，复用 Bing 的 HTML 搜索结果页面
   （`www.bing.com/search?q=`），解析器覆盖 `li.b_algo`/`h2 a`/`.b_caption` 结构；
   含 6 个单测 + 独立 fixture
