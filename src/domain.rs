@@ -64,6 +64,8 @@ pub struct SearchMeta {
     pub low_yield: bool,
     pub captcha: bool,
     pub engine_error: Option<EngineError>,
+    /// 引擎降级尝试链（含最终采用者；单引擎时为 `[engine]`，schema v1 新增字段）。
+    pub engine_tried: Vec<String>,
 }
 
 /// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；零依赖纯枚举）。

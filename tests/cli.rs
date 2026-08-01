@@ -56,9 +56,17 @@ fn missing_query_with_json_is_error_payload() {
 
 #[test]
 fn unknown_engine_is_cli_error() {
-    let (code, out) = run(&["--engine", "google", "rust"]);
-    assert_eq!(code, 2); // clap 参数解析失败
-    assert!(out.is_empty() || out.contains("error")); // clap 错误走 stderr，stdout 为空
+    // engine 参数校验在运行时（app::engines::resolve）：未知引擎 → 参数错误 exit 2
+    let (code, out) = run(&["--engine", "google", "rust", "--json"]);
+    assert_eq!(code, 2);
+    let json = parse_json(&out);
+    assert_eq!(json["error"]["code"], "cli");
+    assert!(
+        json["error"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("未知引擎")
+    );
 }
 // 注：CDP（chrome）后端 V1 已实现——协议正确性由 `src/drivers/cdp.rs` 单测（mock WebSocket）
 // 与 `tests/cdp_smoke.rs` 真机冒烟（#[ignore]）覆盖；`--browser chrome` 在有/无 Chrome 的

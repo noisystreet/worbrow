@@ -100,6 +100,7 @@ mod tests {
             low_yield: true,
             captcha: false,
             engine_error: None,
+            engine_tried: vec!["duckduckgo".to_string()],
         };
         let json = success("q", &[], &meta);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -135,6 +136,7 @@ mod tests {
             low_yield: true,
             captcha: false,
             engine_error: None,
+            engine_tried: vec!["duckduckgo".to_string()],
         };
         let results = [SearchResult {
             rank: 1,
