@@ -214,6 +214,8 @@ pub struct SearchResult {
     pub title: String,
     pub url: String,          // 已解析为最终跳转目标（尽力去重/归一化）
     pub snippet: String,      // 摘要，可为空
+    pub domain: String,       // URL host（来源域，供 agent 免解析判断可信度）
+    pub https: bool,          // scheme 是否为 https
 }
 
 #[derive(Serialize)]
@@ -298,7 +300,8 @@ pub trait SearchProvider: Send + Sync {
   "schema_version": 1,
   "query": "rust 异步运行时 对比",
   "results": [
-    { "rank": 1, "title": "…", "url": "https://…", "snippet": "…" }
+    { "rank": 1, "title": "…", "url": "https://…", "snippet": "…",
+      "domain": "example.com", "https": true }
   ],
   "meta": {
     "engine": "bing",

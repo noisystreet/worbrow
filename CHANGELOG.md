@@ -10,6 +10,9 @@
   CLI `--lang/--region/--pages` 与 MCP 参数同步；Bing `setlang/mkt/first`、DDG
   `kl/s` URL 模板；app 翻页聚合（按 URL 去重合并、rank 重排、集满 `max_results`
   提前停止）；`meta.pages` 记录实际聚合页数（schema v1 只增不改）
+- **agent 契约增强（P1）**：`SearchResult` 新增 `domain`（URL host）与 `https`
+  （scheme 判定），agent 免解析 URL 即可判断来源可信度（schema v1 只增不改）；
+  README 新增「Agent 集成」章节（Claude Code / Cursor MCP 配置 + CLI 子进程要点）
 
 ## [0.1.0] - 2026-08-01
 
