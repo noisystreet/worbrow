@@ -51,6 +51,21 @@ impl SearchQuery {
     }
 }
 
+/// 结果类型（质量自检信号，roadmap-result-quality.md）。
+///
+/// 解析层按 URL 特征标记，供引擎降级判定"内容型结果数"与 agent 自行过滤噪声；
+/// 识别失败一律回退 `Web`（尽力语义，不因特征误判丢结果）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ResultKind {
+    /// 内容页（默认；词典/翻译等污染之外的常规结果）
+    Web,
+    /// 词典释义页（如 iciba/cambridge/eudic 的 `word`/`dict` 路径）
+    Dictionary,
+    /// 翻译页（如 fanyi.baidu.com / fanyi.so）
+    Translation,
+}
+
 /// 单条搜索结果（DTO，跨边界唯一传递形态，禁止泄漏 DOM 结构）。
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 pub struct SearchResult {
@@ -70,6 +85,8 @@ pub struct SearchResult {
     /// URL 是否已解跳转（uddg/ck-a 展开为真实目标）；`false` = 原样返回
     /// （含 ck/a 解码失败保持链式 URL），agent 据此判断 `url` 可信度。
     pub url_resolved: bool,
+    /// 结果类型（schema v1 新增字段；质量降级信号与 agent 过滤噪声用）。
+    pub result_kind: ResultKind,
 }
 
 /// 引擎侧可上报的结构化异常：不为空即结果不可信（design.md §7.1）。

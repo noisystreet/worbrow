@@ -92,6 +92,7 @@ impl SearchProvider for Bing {
 
             let (domain, https) = crate::extract::url_origin(&url);
             let published_at = crate::extract::extract_date(&snippet_text);
+            let result_kind = crate::extract::result_kind(&url);
             results.push(SearchResult {
                 rank: i + 1,
                 title: title_text,
@@ -102,6 +103,7 @@ impl SearchProvider for Bing {
                 published_at,
                 is_ad: false, // b_algo 选择器不含广告容器（li.b_ad）
                 url_resolved,
+                result_kind,
             });
         }
 
@@ -233,6 +235,12 @@ mod tests {
         assert_eq!(results[2].published_at.as_deref(), Some("2025年3月23日"));
         assert!(!results[0].is_ad, "b_algo 不含广告");
         assert!(!results[0].url_resolved, "fixture 为直接 URL，无需解跳转");
+        // fixture URL 均为正常内容页 → result_kind 恒 web
+        assert!(
+            results
+                .iter()
+                .all(|r| r.result_kind == crate::domain::ResultKind::Web)
+        );
         // 第二条：URL 来自 href 直接提取，无跳转参数
         assert_eq!(
             results[1].url,

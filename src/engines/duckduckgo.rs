@@ -79,6 +79,7 @@ impl SearchProvider for DuckDuckGo {
             // DDG 广告位容器 class 形如 `result--ad`；普通结果无此标记
             let is_ad = node.value().classes().any(|c| c.contains("--ad"));
             let published_at = crate::extract::extract_date(&snippet_text);
+            let result_kind = crate::extract::result_kind(&url);
             results.push(SearchResult {
                 rank: i + 1,
                 title: title_text,
@@ -89,6 +90,7 @@ impl SearchProvider for DuckDuckGo {
                 published_at,
                 is_ad,
                 url_resolved,
+                result_kind,
             });
         }
 
@@ -194,6 +196,12 @@ mod tests {
         assert_eq!(results[0].published_at, None);
         assert!(!results[0].is_ad);
         assert!(results[0].url_resolved, "uddg 展开应标记已解跳转");
+        // fixture URL 均为正常内容页 → result_kind 恒 web
+        assert!(
+            results
+                .iter()
+                .all(|r| r.result_kind == crate::domain::ResultKind::Web)
+        );
         // uddg 跳转展开
         assert_eq!(results[2].url, "https://example.org/async");
     }

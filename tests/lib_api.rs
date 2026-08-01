@@ -6,7 +6,7 @@ use worbrow::app::Config;
 use worbrow::error::{EngineFailure, Error};
 use worbrow::{
     BrowserKind, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS, EngineError,
-    SearchMeta, SearchProvider, SearchQuery, SearchResult,
+    ResultKind, SearchMeta, SearchProvider, SearchQuery, SearchResult,
 };
 
 /// 编译期可命名性（P0 补漏项）：`EngineError`/`SearchResult`/`SearchMeta`
@@ -44,6 +44,7 @@ impl SearchProvider for DummyEngine {
             published_at: None,
             is_ad: false,
             url_resolved: false,
+            result_kind: ResultKind::Web,
         }])
     }
     fn captcha_heuristics(&self) -> &[&'static str] {

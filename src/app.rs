@@ -22,6 +22,16 @@ pub const LOW_YIELD_THRESHOLD: usize = 3;
 /// （design.md §6.2 二级超时）。
 pub const WAIT_BUDGET: Duration = Duration::from_secs(10);
 
+/// 内容型（`ResultKind::Web`）结果数：质量降级信号核心（roadmap-result-quality.md）。
+/// 词典/翻译等污染结果不计入——高产低质（如 Bing 对 `best`/`learn` 返回全词典释义）
+/// 不再满足降级判定，自动尝试下一引擎。
+fn content_count(results: &[SearchResult]) -> usize {
+    results
+        .iter()
+        .filter(|r| r.result_kind == crate::domain::ResultKind::Web)
+        .count()
+}
+
 /// 搜索配置（ADR-006 公开面；字段私有，构造与修改只经 [`Config::new`]/builder，保证不变量）。
 pub struct Config {
     query: String,
@@ -407,7 +417,7 @@ async fn search_attempt(
             let name = provider.name();
             let (html, results, captcha, pages) =
                 search_one(&**provider, query, driver, timeout_dur).await?;
-            let low_yield = results.len() < LOW_YIELD_THRESHOLD;
+            let low_yield = content_count(&results) < LOW_YIELD_THRESHOLD;
             Ok((
                 name,
                 html,
@@ -476,12 +486,13 @@ async fn handle_engine_result(
 ) -> Result<Option<(&'static str, String, Vec<SearchResult>, bool, usize, bool)>, Error> {
     match result {
         Ok((html, results, captcha, pages)) => {
-            // 满意：集满请求量或非低产（≥ 阈值）；否则保留候选继续降级
-            let satisfied =
-                results.len() >= query.max_results || results.len() >= LOW_YIELD_THRESHOLD;
+            // 满意：内容型（web）结果集满请求量或非低产（≥ 阈值）；词典/翻译污染
+            // 不计入（roadmap-result-quality.md：高产低质自动尝试下一引擎）
+            let content = content_count(&results);
+            let satisfied = content >= query.max_results || content >= LOW_YIELD_THRESHOLD;
             if satisfied {
                 tracing::info!(engine = provider.name(), count = results.len(), "采用引擎");
-                let low_yield = results.len() < LOW_YIELD_THRESHOLD;
+                let low_yield = content < LOW_YIELD_THRESHOLD;
                 return Ok(Some((
                     provider.name(),
                     html,
@@ -491,9 +502,9 @@ async fn handle_engine_result(
                     low_yield,
                 )));
             }
-            // 低产：保留最高产候选，继续尝试下一引擎
+            // 低产/低质：保留最高产（按内容型数）候选，继续尝试下一引擎
             let better = match candidate {
-                Some((_, cur, ..)) => results.len() > cur.len(),
+                Some((_, cur, ..)) => content > content_count(cur),
                 None => true,
             };
             if better {
@@ -868,5 +879,79 @@ mod tests {
             .await
             .expect_err("验证码错误应直接返回");
         assert!(matches!(err, Error::Captcha(_)));
+    }
+
+    /// 质量降级（roadmap-result-quality.md 核心）：Bing 返回全词典污染（高产低质，
+    /// 旧判定 `results.len() >= 3` 会误判满意）→ 内容型 0 → 自动降级 DuckDuckGo。
+    #[tokio::test]
+    async fn dictionary_pollution_triggers_engine_fallback() {
+        /// Bing 风格页面：全部结果指向 iciba 词典释义（真实污染形态）。
+        const DICT_POLLUTION_HTML: &str = r#"<html><body><ol id="b_results">
+          <li class="b_algo"><h2><a href="https://www.iciba.com/word?w=best">best 的翻译</a></h2><div class="b_caption"><p>词典释义一</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.iciba.com/word?w=learn">learn 的翻译</a></h2><div class="b_caption"><p>词典释义二</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.iciba.com/word?w=rust">rust 的翻译</a></h2><div class="b_caption"><p>词典释义三</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.iciba.com/word?w=tutorial">tutorial 的翻译</a></h2><div class="b_caption"><p>词典释义四</p></div></li>
+        </ol></body></html>"#;
+
+        /// 按导航 URL 返回不同页面：bing → 全词典污染；ddg → 正常内容 fixture。
+        struct PollutingDriver {
+            current: Option<String>,
+        }
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for PollutingDriver {
+            async fn navigate(&mut self, url: url::Url) -> Result<(), Error> {
+                self.current = Some(url.to_string());
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                let url = self.current.as_deref().unwrap_or_default();
+                if url.contains("bing.com") {
+                    Ok(DICT_POLLUTION_HTML.to_string())
+                } else {
+                    Ok(include_str!("../tests/fixtures/duckduckgo.html").to_string())
+                }
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = PollutingDriver { current: None };
+        let cfg = Config::new("best rust tutorial", "bing,duckduckgo", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(10));
+        let outcome = run_with(&mut driver, cfg).await.expect("降级后应成功");
+        // 词典污染不满足 → 降级到 ddg 并采用其内容型结果
+        assert_eq!(outcome.meta.engine, "duckduckgo");
+        assert_eq!(outcome.meta.engine_tried, vec!["bing", "duckduckgo"]);
+        assert!(!outcome.meta.low_yield, "ddg 3 条内容型 ≥ 阈值");
+        assert!(
+            outcome
+                .results
+                .iter()
+                .all(|r| r.result_kind == crate::domain::ResultKind::Web),
+            "采用的结果应全部为内容型"
+        );
+    }
+
+    /// 回归：首引擎内容型结果足够（≥ 阈值）→ 不降级、不误报低产。
+    #[tokio::test]
+    async fn content_results_do_not_trigger_fallback() {
+        let mut driver = crate::drivers::resolve(BrowserKind::Fake)
+            .await
+            .expect("resolve Fake 应成功");
+        let cfg = Config::new("rust", "bing", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut *driver, cfg).await.expect("应成功");
+        assert_eq!(outcome.meta.engine, "bing");
+        assert_eq!(outcome.meta.engine_tried, vec!["bing"], "不应降级");
+        assert!(!outcome.meta.low_yield, "3 条内容型 ≥ 阈值，不应低产");
     }
 }
