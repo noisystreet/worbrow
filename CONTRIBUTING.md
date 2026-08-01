@@ -2,7 +2,7 @@
 
 ## 环境要求
 
-- Rust ≥ 1.85（edition 2024）
+- Rust ≥ 1.97（edition 2024）
 - 可选：`cargo-deny`、`cargo-machete`、`pre-commit`（未装则跳过对应步骤）
 
 首次启用 pre-commit：

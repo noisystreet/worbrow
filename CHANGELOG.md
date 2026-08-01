@@ -6,6 +6,8 @@
 
 ### Changed
 
+- **MSRV 提升至 1.97**（原 1.85）：依赖链真实要求 rustc ≥ 1.88（darling/ICU），
+  1.85 无法编译；rust-version 与 CI MSRV 校验同步更新
 - **MCP server 支持空闲超时**：`worbrow mcp --idle-timeout <secs>` 超过该时长无任何
   请求自动退出（默认 0 = 禁用），覆盖握手前与握手后阶段，防 agent 崩溃后残留进程
 - **默认搜索引擎改为 `bing`**（CLI 与 MCP 工具一致，原 `duckduckgo`）

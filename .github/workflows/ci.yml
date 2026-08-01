@@ -38,13 +38,13 @@ jobs:
         uses: bnjbvr/cargo-machete@main
 
   msrv:
-    # 验证声明的最低 Rust 版本（Cargo.toml rust-version = 1.85）确实可编译
-    name: MSRV (1.85) check
+    # 验证声明的最低 Rust 版本（Cargo.toml rust-version = 1.97）确实可编译
+    name: MSRV (1.97) check
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
-      - uses: dtolnay/rust-toolchain@1.85.0
+      - uses: dtolnay/rust-toolchain@1.97.0
 
       - uses: Swatinem/rust-cache@v2
 

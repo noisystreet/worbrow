@@ -4,7 +4,7 @@
 
 ## 项目身份
 
-- Rust（edition 2024，MSRV 1.85）CLI 工具，二进制名 `worbrow`，库名 `worbrow`
+- Rust（edition 2024，MSRV 1.97）CLI 工具，二进制名 `worbrow`，库名 `worbrow`
 - 为 AI agent 提供"搜索引擎搜索"能力：驱动本机 headless 浏览器，输出稳定 JSON 契约
 - 架构权威来源：`docs/design.md`（§5 分层、§6 模块、§7 契约、ADR 章节）
 

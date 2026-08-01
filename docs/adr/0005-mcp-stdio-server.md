@@ -14,8 +14,9 @@ agent 只能以子进程方式调用；接入 MCP 可将 `web_search` 作为一�
 
 - 新增 `worbrow mcp` 子命令：以 **MCP stdio server** 形态运行，通过 stdio 暴露
   `web_search` 工具（参数：`query`/`engine`/`browser`/`max_results`/`timeout`）
-- SDK 采用 **rmcp 2.2.0**（官方 Rust SDK）。钉 2.x：v3 需要 rustc 1.88，超过本项目
-  MSRV 1.85；2.2 提供 `#[tool]`/`#[tool_router]` 宏、`ServerHandler` trait 与
+- SDK 采用 **rmcp 2.2.0**（官方 Rust SDK）。钉 2.x：v3 需要 rustc 1.88，超过项目当时的
+  MSRV 1.85（2026-08 起 MSRV 提升至 1.97，该门槛不再构成阻碍，维持 2.2 无升级必需）；
+  2.2 提供 `#[tool]`/`#[tool_router]` 宏、`ServerHandler` trait 与
   `ServiceExt::serve` + `transport::stdio`，满足全部需求
 - 依赖 **feature-gating**：`mcp = ["dep:rmcp"]`，**默认启用**（`default = ["mcp"]`）；
   可用 `--no-default-features` 做无 MCP 精简构建
