@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 description = "Agent 搜索 CLI：驱动本机 headless 浏览器（Chrome/Edge/Firefox）执行通用搜索引擎搜索，输出稳定 JSON 契约"
 license = "MIT OR Apache-2.0"
-repository = "https://example.invalid/worbrow" # TODO: 设置真实仓库地址
+repository = "https://github.com/noisystreet/worbrow"
 rust-version = "1.85"
 
 # 库目标：核心逻辑以 lib 暴露，供集成测试与后续扩展（如 HTTP 服务）复用
@@ -45,7 +45,7 @@ mcp = ["dep:rmcp"]
 
 # Debian 打包（`make deb` / CI，cargo-deb 3.x）：发布形态启用 mcp feature
 [package.metadata.deb]
-maintainer = "worbrow maintainers <worbrow@example.invalid>" # TODO: 设置真实维护者
+maintainer = "worbrow maintainers" # TODO: 设置真实维护者邮箱
 section = "utils"
 priority = "optional"
 # 运行时需任一浏览器（Chrome/Edge 亦可，故为弱依赖）
