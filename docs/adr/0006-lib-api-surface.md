@@ -8,7 +8,7 @@
 worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`/`drivers`/`engines`/
 `error`/`mcp`/`output`/`ports` 八个模块。该公开面**按模块粒度**服务 bin 与集成测试
 （同 crate 内 pub 即全暴露），并非为外部库消费者设计。已有外部消费骨架
-（`app::Config` builder、`run_sync`/`run`、`DoctorReport`、`output::*`），但存在
+（`app::Config` builder、`search`/`run`、`DoctorReport`、`output::*`），但存在
 类型级缺陷与设计缺口：
 
 1. `EngineError` 未 re-export：`SearchMeta.engine_error: Option<EngineError>` 的字段
@@ -29,12 +29,12 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 将库公开面从**模块级**收敛为**类型级**顶层 API，作为 0.x 冻结前的目标形态：
 
 - **顶层 re-export**：`lib.rs` 提供 `worbrow::{Config, BrowserKind, Outcome,
-  DoctorReport, Error, search, run, run_sync, DEFAULT_*, SearchQuery, SearchResult,
+  DoctorReport, Error, search, run, DEFAULT_*, SearchQuery, SearchResult,
   SearchMeta, EngineError}`；消费者一行 `use worbrow::...` 完成拼装，无需感知模块树
 - **`cli` 摘出到 bin**：CLI 参数解析（clap）从 lib 移除，`src/main.rs` 声明
   `mod cli;`（bin 侧私有）；lib 删除 `pub mod cli`。理由：bin 是独立 crate，
   `pub(crate)` 对 bin 不可见（实施中验证），CLI 解析本属 CLI 关注点；lib 只暴露
-  `Config`/`run_sync` 等库入口
+  `Config`/`search` 等库入口
 - **适配器内部化**：`drivers::{cdp, marionette, jsonrpc, discovery, fake}`、
   `engines::{bing, duckduckgo}`、`extract` 改为内部；保留 `drivers::resolve`、
   `engines::resolve`/`AVAILABLE` 作为内部服务公开面（bin/tests 使用），**不进**

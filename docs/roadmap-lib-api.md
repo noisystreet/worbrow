@@ -12,7 +12,7 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 作为库消费已具备的骨架（P0–P2 重构产物）：
 
 - `app::Config::new` + builder（`with_max_results`/`with_timeout`/`with_screenshot`/`with_dump_html`/`with_driver`）
-- `app::run_sync`（同步入口，内部管 runtime）/ `app::run`（async，复用外部 runtime）
+- `app::search`（同步入口，内部管 runtime）/ `app::run`（async，复用外部 runtime）
 - `app::DoctorReport::collect()` 环境自检
 - `output::success/failure` 契约序列化、`error::Error`（含 `exit_code`/`code_str`/`detail`）
 - `domain::DEFAULT_*` 常量、`BrowserKind::from_arg`
@@ -63,7 +63,7 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 
 | 项 | 内容 |
 |---|---|
-| 顶层 re-export | `worbrow::{Config, BrowserKind, Outcome, DoctorReport, Error, run, run_sync, DEFAULT_*, SearchQuery, SearchResult, SearchMeta, EngineError}` |
+| 顶层 re-export | `worbrow::{Config, BrowserKind, Outcome, DoctorReport, Error, run, search, DEFAULT_*, SearchQuery, SearchResult, SearchMeta, EngineError}` |
 | `cli` 摘出到 bin | `main.rs` 声明 `mod cli;`（bin 侧私有），lib 删除 `pub mod cli`——bin 是独立 crate，`pub(crate)` 对 bin 不可见（实施中验证）；clap 依赖留 bin |
 | 适配器内部化 | `drivers::{cdp, marionette, jsonrpc, discovery, fake}`、`engines::{bing, duckduckgo}` 内部化；真机冒烟测试改经 `drivers::resolve`（trait 面断言）；保留 `drivers::resolve`、`engines::resolve/AVAILABLE` 为内部服务公开面 |
 | `BrowserKind` 归位 | 从 `drivers` 上移为 `domain` 纯配置枚举（零依赖），顶层 re-export |
@@ -75,8 +75,12 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 | 项 | 内容 |
 |---|---|
 | 类型化契约包 | `output::SuccessPacket`/`FailurePacket`（`Serialize`，含 `schema_version`），CLI 仅渲染，库消费者直接 `serde_json` |
+| `Config` 字段私有化 | 字段 `pub` → 私有，builder 成为唯一入口（消除绕过 `with_max_results` clamp 等不变量；tests 已全部改用 builder，0.x 破坏性变更记 CHANGELOG） |
+| 入口收敛 | 同步入口统一为顶层 `search`，`run_sync` **已移除**（等价双名消除）；async 场景用 `run` |
+| trait 顶层 re-export | `worbrow::{SearchProvider, BrowserDriver}` 进顶层，自定义引擎/驱动一行 use 完成 |
 | rustdoc 示例 | `lib.rs` 顶层 + 核心类型 quickstart doc-test；`examples/`（根目录）加可运行示例 |
 | feature 文档化 | `mcp` 默认启用仅服务 CLI；文档明示库消费 `default-features = false`；`clap`/`tempfile` 等 CLI 专属依赖逐步 feature 化 |
+| 文档互链 | `EngineError`（meta 上报）与 `EngineFailure`（CLI 错误）rustdoc 互链说明语义差异 |
 | 版本语义 | README/CONTRIBUTING 明确 0.x 公开面冻结与变更流程 |
 
 ## 4. 目标 API 形态（P1 完成后）
@@ -101,7 +105,7 @@ fn main() -> Result<(), worbrow::Error> {
 struct MyEngine; // impl worbrow::SearchProvider
 let config = Config::new("q", "myengine", BrowserKind::Firefox)
     .with_provider(Box::new(MyEngine));
-let outcome = worbrow::run_sync(config)?;
+let outcome = worbrow::search(config)?;
 ```
 
 ## 5. 实施顺序

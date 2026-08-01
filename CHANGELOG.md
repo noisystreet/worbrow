@@ -12,7 +12,7 @@
   `run` 编排）；CLI 参数解析（clap）移入二进制，lib 不再暴露 `cli` 模块；适配器
   实现（cdp/marionette/fake/bing 等）内部化，公开面仅 `resolve`/`AVAILABLE`；
   `Error` 底层错误经 `#[source]` 可下钻
-- **库 API 完善**：`app::run_sync`（同步搜索入口，内部管理 tokio runtime）、
+- **库 API 完善**：`app::search`（同步搜索入口，内部管理 tokio runtime）、
   `app::DoctorReport`/`BackendStatus`（结构化环境自检）、`Config::new` + builder
   （`with_max_results`/`with_timeout`/`with_screenshot`/`with_dump_html`/`with_driver`）、
   `BrowserKind::from_arg`（浏览器参数单一解析源）、`domain::DEFAULT_*` 默认值常量
