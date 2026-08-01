@@ -18,6 +18,24 @@ pub struct SuccessPayload<'a> {
     pub meta: &'a SearchMeta,
 }
 
+/// 精简模式成功包（MCP `compact=true`）：results 仅 rank/title/url，
+/// 省 agent 上下文 token；schema v1 语义不变（紧凑只读视图，roadmap「MCP 体验完善」）。
+#[derive(Serialize)]
+pub struct CompactSuccessPayload<'a> {
+    pub schema_version: u32,
+    pub query: &'a str,
+    pub results: &'a [CompactResult<'a>],
+    pub meta: &'a SearchMeta,
+}
+
+/// 精简结果条目：仅保留 rank/title/url（MCP compact 模式）。
+#[derive(Serialize)]
+pub struct CompactResult<'a> {
+    pub rank: usize,
+    pub title: &'a str,
+    pub url: &'a str,
+}
+
 #[derive(Serialize)]
 pub struct ErrorPayload<'a> {
     pub schema_version: u32,
@@ -40,6 +58,25 @@ pub fn success(query: &str, results: &[SearchResult], meta: &SearchMeta) -> Stri
         meta,
     })
     .expect("序列化成功包不应失败")
+}
+
+/// 精简成功包（MCP `compact=true`）：results 仅 rank/title/url（schema v1 只读视图）。
+pub fn success_compact(query: &str, results: &[SearchResult], meta: &SearchMeta) -> String {
+    let compact: Vec<CompactResult<'_>> = results
+        .iter()
+        .map(|r| CompactResult {
+            rank: r.rank,
+            title: &r.title,
+            url: &r.url,
+        })
+        .collect();
+    serde_json::to_string_pretty(&CompactSuccessPayload {
+        schema_version: SCHEMA_VERSION,
+        query,
+        results: &compact,
+        meta,
+    })
+    .expect("序列化精简成功包不应失败")
 }
 
 /// 失败包：`--json` 且非 0 退出码时输出到 stdout，供 agent 结构化处理。
@@ -168,5 +205,52 @@ mod tests {
         assert!(text.contains("[cli]"));
         assert!(text.contains("缺参"));
         assert!(!text.contains("schema_version"));
+    }
+
+    /// compact 精简包：results 仅 rank/title/url，无 snippet/domain 等冗余字段。
+    #[test]
+    fn compact_payload_only_contains_rank_title_url() {
+        let meta = SearchMeta {
+            engine: "bing",
+            started_at: Utc::now(),
+            elapsed_ms: 10,
+            result_count: 1,
+            pages: 1,
+            low_yield: false,
+            captcha: false,
+            engine_error: None,
+            engine_tried: vec!["bing".to_string()],
+            cached: false,
+            retries: 0,
+        };
+        let results = [SearchResult {
+            rank: 1,
+            title: "T".into(),
+            url: "https://example.com".into(),
+            snippet: "SNIPPET".into(),
+            domain: "example.com".into(),
+            https: true,
+            published_at: Some("2026-08-01".into()),
+            is_ad: false,
+            url_resolved: true,
+        }];
+        let json = success_compact("q", &results, &meta);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["schema_version"], 1);
+        assert_eq!(parsed["query"], "q");
+        // 精简条目只含 rank/title/url
+        assert_eq!(parsed["results"][0]["rank"], 1);
+        assert_eq!(parsed["results"][0]["title"], "T");
+        assert_eq!(parsed["results"][0]["url"], "https://example.com");
+        assert!(
+            parsed["results"][0].get("snippet").is_none(),
+            "compact 不含 snippet"
+        );
+        assert!(
+            parsed["results"][0].get("domain").is_none(),
+            "compact 不含 domain"
+        );
+        // meta 完整保留
+        assert_eq!(parsed["meta"]["engine"], "bing");
     }
 }

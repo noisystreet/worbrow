@@ -265,6 +265,13 @@ pub struct SearchParams {
     )]
     #[serde(default = "default_no_cache")]
     pub no_cache: bool,
+    /// 精简输出模式（仅 rank/title/url，省上下文 token）
+    #[schemars(
+        description = "精简输出模式（默认 false；true = 结果仅含 rank/title/url）",
+        default = "default_compact"
+    )]
+    #[serde(default = "default_compact")]
+    pub compact: bool,
 }
 
 fn default_engine() -> String {
@@ -304,6 +311,10 @@ fn default_retry() -> usize {
 }
 
 fn default_no_cache() -> bool {
+    false
+}
+
+fn default_compact() -> bool {
     false
 }
 
@@ -402,10 +413,9 @@ impl SearchServer {
         if !params.no_cache
             && let Some(outcome) = self.cache.get(&cache_key)
         {
-            return CallToolResult::success(vec![ContentBlock::text(crate::output::success(
-                &outcome.query,
-                &outcome.results,
-                &outcome.meta,
+            return CallToolResult::success(vec![ContentBlock::text(format_outcome(
+                &outcome,
+                params.compact,
             ))]);
         }
 
@@ -428,10 +438,9 @@ impl SearchServer {
                 if !params.no_cache {
                     self.cache.put(cache_key, outcome.clone());
                 }
-                CallToolResult::success(vec![ContentBlock::text(crate::output::success(
-                    &outcome.query,
-                    &outcome.results,
-                    &outcome.meta,
+                CallToolResult::success(vec![ContentBlock::text(format_outcome(
+                    &outcome,
+                    params.compact,
                 ))])
             }
             Err(err) => {
@@ -442,6 +451,37 @@ impl SearchServer {
             }
         }
         // guard 在此 Drop：健康 → 归还池；不健康 → 丢弃（重建）
+    }
+
+    /// 列出可用引擎（agent 自查引擎名/降级顺序用，无需读错误码）。
+    #[tool(
+        name = "list_engines",
+        description = "列出当前可用的搜索引擎（供拼接 engine 参数与降级链，如 bing,duckduckgo）"
+    )]
+    async fn list_engines(&self) -> CallToolResult {
+        let body = serde_json::to_string_pretty(&crate::engines::AVAILABLE)
+            .expect("引擎列表序列化不应失败");
+        CallToolResult::success(vec![ContentBlock::text(body)])
+    }
+
+    /// 环境自检（浏览器二进制/引擎注册表），agent 排查环境问题无需读错误码。
+    #[tool(
+        name = "doctor",
+        description = "检查环境：可用引擎、浏览器后端二进制与版本（Chrome ≥109 / Firefox ≥55）"
+    )]
+    async fn doctor(&self) -> CallToolResult {
+        let report = app::DoctorReport::collect();
+        let body = serde_json::to_string_pretty(&report).expect("doctor 报告序列化不应失败");
+        CallToolResult::success(vec![ContentBlock::text(body)])
+    }
+}
+
+/// 按 `compact` 选择成功包序列化（完整 vs 精简 rank/title/url）。
+fn format_outcome(outcome: &app::Outcome, compact: bool) -> String {
+    if compact {
+        crate::output::success_compact(&outcome.query, &outcome.results, &outcome.meta)
+    } else {
+        crate::output::success(&outcome.query, &outcome.results, &outcome.meta)
     }
 }
 
