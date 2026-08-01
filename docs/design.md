@@ -418,9 +418,10 @@ CI 不依赖真实浏览器，保证可复现。
 
 ## 13. 演进路线
 
-- **V1（MVP，进行中）**：DuckDuckGo/Bing 引擎 + Marionette 后端（Firefox）已完成；
-  `--json`/超时/验证码检测/截图/`worbrow doctor` 已就绪；MCP stdio server
-  （`worbrow mcp`，rmcp 2.2，见 ADR-005）已完成；CDP 后端（Chrome/Edge）已完成
+- **V1（MVP，已完成，v0.1.0）**：DuckDuckGo/Bing 引擎 + Marionette 后端（Firefox）
+  与 CDP 后端（Chrome/Edge）均已完成；`--json`/超时/验证码检测/截图/`worbrow doctor`
+  已就绪；MCP stdio server（`worbrow mcp`，rmcp 2.2，见 ADR-005）已完成；库公开面
+  收敛为类型级顶层 API（ADR-006），可作为库供外部消费
 - **V2**：百度、Google（预期高拦截，降级为"尽力"）；`--connect` 连接常驻浏览器复用会话；
   结果去重归一化加强；新增 `--retry`（瞬时网络错误重试）；若需网络拦截等深度控制，
   引入 chromiumoxide 作第二 CDP 实现

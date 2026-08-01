@@ -83,7 +83,7 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 | 文档互链 | ✅ `EngineError`（meta 上报）与 `EngineFailure`（CLI 错误）rustdoc 互链 |
 | 版本语义 | ✅ CONTRIBUTING 明确 0.x 公开面冻结：破坏性变更 bump minor + CHANGELOG，新公开项须经顶层 re-export 评估 |
 
-## 4. 目标 API 形态（P1 完成后）
+## 4. 目标 API 形态（已达成）
 
 ```rust
 // 外部消费者（Cargo.toml: worbrow = { version = "0.1", default-features = false }）
