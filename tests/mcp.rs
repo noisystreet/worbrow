@@ -207,6 +207,10 @@ async fn tools_call_runs_web_search_via_fake_driver() {
     // 结果条目携带 domain/https（agent 免解析判断来源）
     assert_eq!(payload["results"][0]["domain"], "www.runoob.com");
     assert_eq!(payload["results"][0]["https"], true);
+    // 结果契约增强：日期/广告/解跳转标记（SMOKE_HTML 首条摘要无日期、直接 URL）
+    assert_eq!(payload["results"][0]["published_at"], Value::Null);
+    assert_eq!(payload["results"][0]["is_ad"], false);
+    assert_eq!(payload["results"][0]["url_resolved"], false);
     assert_eq!(payload["meta"]["low_yield"], false);
     client.kill().await;
 }

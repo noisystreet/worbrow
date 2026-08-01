@@ -38,6 +38,14 @@ pub struct SearchResult {
     pub domain: String,
     /// 链接是否为 HTTPS（scheme 判定）。
     pub https: bool,
+    /// 发布日期（从摘要尽力提取的原始字符串；`None` = 引擎未提供/不可解析，
+    /// 格式随引擎变化，不承诺统一）。
+    pub published_at: Option<String>,
+    /// 是否为广告位结果（Bing 广告容器已被选择器排除恒 false；DDG 广告位标记 true）。
+    pub is_ad: bool,
+    /// URL 是否已解跳转（uddg/ck-a 展开为真实目标）；`false` = 原样返回
+    /// （含 ck/a 解码失败保持链式 URL），agent 据此判断 `url` 可信度。
+    pub url_resolved: bool,
 }
 
 /// 引擎侧可上报的结构化异常：不为空即结果不可信（design.md §7.1）。
