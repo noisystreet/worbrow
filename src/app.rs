@@ -40,6 +40,65 @@ pub struct Outcome {
     pub meta: SearchMeta,
 }
 
+/// 环境自检结果（design.md §10）：引擎注册表 + 各浏览器后端状态。
+#[derive(Debug)]
+pub struct DoctorReport {
+    /// 可用引擎（注册表顺序）。
+    pub engines: Vec<&'static str>,
+    /// 浏览器后端状态（fake/chrome/firefox）。
+    pub backends: Vec<BackendStatus>,
+}
+
+/// 单个浏览器后端状态。
+#[derive(Debug)]
+pub struct BackendStatus {
+    pub kind: BrowserKind,
+    /// 找到的二进制路径；`None` 表示未找到。
+    pub binary: Option<PathBuf>,
+    /// 主版本号；读取失败为 `None`。
+    pub major_version: Option<u32>,
+    /// 二进制发现失败原因（`binary` 为 `None` 时）。
+    pub error: Option<String>,
+}
+
+impl DoctorReport {
+    /// 收集环境自检信息（同步、无网络；供 CLI `doctor` 与诊断工具复用）。
+    pub fn collect() -> Self {
+        let backends = [BrowserKind::Fake, BrowserKind::Chrome, BrowserKind::Firefox]
+            .into_iter()
+            .map(|kind| {
+                let (binary, major_version, error) =
+                    match crate::drivers::discovery::find_browser(kind) {
+                        Ok(p) => {
+                            let version = crate::drivers::discovery::browser_major_version(&p);
+                            (Some(p), version, None)
+                        }
+                        Err(e) => (None, None, Some(e.to_string())),
+                    };
+                BackendStatus {
+                    kind,
+                    binary,
+                    major_version,
+                    error,
+                }
+            })
+            .collect();
+        Self {
+            engines: engines::AVAILABLE.to_vec(),
+            backends,
+        }
+    }
+}
+
+/// 同步入口：内部创建 tokio runtime 并阻塞执行一次搜索。
+///
+/// CLI/脚本等非 async 调用方无需自行管理 runtime；异步场景（如 MCP）直接使用 [`run`]。
+pub fn run_sync(config: Config) -> Result<Outcome, Error> {
+    let runtime = tokio::runtime::Runtime::new()
+        .map_err(|e| Error::Internal(format!("tokio runtime 初始化失败: {e}")))?;
+    runtime.block_on(run(config))
+}
+
 /// 执行一次搜索（design.md §6.2 步骤 1-10）。
 pub async fn run(config: Config) -> Result<Outcome, Error> {
     // 1. 解析并校验 query
