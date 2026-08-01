@@ -3,6 +3,15 @@
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
+/// 默认引擎（CLI 与 MCP 共用，design.md §6.1）。
+pub const DEFAULT_ENGINE: &str = "bing";
+/// 默认浏览器后端（CLI 与 MCP 共用）。
+pub const DEFAULT_BROWSER: &str = "firefox";
+/// 默认返回条数上限。
+pub const DEFAULT_MAX_RESULTS: usize = 10;
+/// 默认全流程硬超时（秒）。
+pub const DEFAULT_TIMEOUT_SECS: u64 = 60;
+
 /// 一次搜索请求。
 #[derive(Debug, Clone)]
 pub struct SearchQuery {

@@ -4,7 +4,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use worbrow::app::{self, Config};
-use worbrow::cli::{BrowserArg, Cli, Command, LogLevelArg};
+use worbrow::cli::{Cli, Command, LogLevelArg};
 use worbrow::drivers::BrowserKind;
 use worbrow::engines;
 use worbrow::error::Error;
@@ -49,10 +49,7 @@ fn run_cli() -> ExitCode {
     let config = Config {
         query,
         engine: cli.engine.name().to_string(),
-        browser: match cli.browser {
-            BrowserArg::Chrome => BrowserKind::Chrome,
-            BrowserArg::Firefox => BrowserKind::Firefox,
-        },
+        browser: cli.browser.to_kind(),
         max_results: cli.max_results,
         timeout: std::time::Duration::from_secs(cli.timeout),
         screenshot: cli.screenshot,

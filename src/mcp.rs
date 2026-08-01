@@ -65,32 +65,29 @@ pub struct SearchParams {
 }
 
 fn default_engine() -> String {
-    "bing".to_string()
+    crate::domain::DEFAULT_ENGINE.to_string()
 }
 
 fn default_browser() -> String {
-    "firefox".to_string()
+    crate::domain::DEFAULT_BROWSER.to_string()
 }
 
 fn default_max_results() -> usize {
-    10
+    crate::domain::DEFAULT_MAX_RESULTS
 }
 
 fn default_timeout_secs() -> u64 {
-    60
+    crate::domain::DEFAULT_TIMEOUT_SECS
 }
 
 impl SearchServer {
-    /// 解析浏览器后端参数（与 CLI `--browser` 对齐，另接受 `fake` 供测试/冒烟）。
+    /// 解析浏览器后端参数（CLI `--browser` 与 MCP 共用 `BrowserKind::from_arg` 单一映射）。
     fn parse_browser(s: &str) -> Result<BrowserKind, Error> {
-        match s.trim().to_ascii_lowercase().as_str() {
-            "fake" => Ok(BrowserKind::Fake),
-            "firefox" => Ok(BrowserKind::Firefox),
-            "chrome" | "edge" | "chromium" => Ok(BrowserKind::Chrome),
-            other => Err(Error::Cli(format!(
-                "不支持的浏览器后端: {other}（支持 fake/firefox/chrome）"
-            ))),
-        }
+        BrowserKind::from_arg(s).ok_or_else(|| {
+            Error::Cli(format!(
+                "不支持的浏览器后端: {s}（支持 fake/firefox/chrome/edge/chromium）"
+            ))
+        })
     }
 }
 
