@@ -17,6 +17,7 @@ cargo run -- list                    # 列出可用引擎
 cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/后端状态）
 cargo run -- "rust 异步运行时" --json   # 默认引擎 bing、默认超时 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
+cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # 翻页聚合 + 语言/地域
 ```
 
 当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
@@ -62,7 +63,8 @@ cargo build --release
   "query": "rust",
   "results": [{ "rank": 1, "title": "…", "url": "https://…", "snippet": "…" }],
   "meta": { "engine": "bing", "started_at": "…", "elapsed_ms": 1200,
-            "result_count": 3, "low_yield": false, "captcha": false, "engine_error": null }
+            "result_count": 3, "pages": 1, "low_yield": false,
+            "captcha": false, "engine_error": null }
 }
 ```
 

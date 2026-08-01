@@ -58,15 +58,15 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 风险 | 浏览器进程泄漏、并发 profile 冲突、崩溃会话复活（需健康检查/重连） |
 | 参考 | [marionette.rs](../src/drivers/marionette.rs) 的 Drop 回收；[mcp.rs](../src/mcp.rs) 空闲超时 |
 
-### P1：搜索参数增强
+### P1：搜索参数增强 —— ✅ 已完成（2026-08）
 
 | 项 | 内容 |
 |---|---|
 | 现状 | `SearchQuery` 仅 `query`；Bing 单页、无地域/语言控制 |
 | 目标 | `hl`（语言）、`mkt`/`cc`（地域）、翻页聚合（前 N 页去重合并）、`max_results` 精确截断 |
-| 改动点 | ① [domain.rs](../src/domain.rs) `SearchQuery` 扩展可选字段（默认保持现行为）；② [bing.rs](../src/engines/bing.rs) 先行：URL 模板 + 翻页参数，[duckduckgo.rs](../src/engines/duckduckgo.rs) 保持一致；③ [app.rs](../src/app.rs) 翻页循环 + 结果去重重排 rank；④ CLI/MCP 新增 `--lang/--region/--pages` |
-| 契约影响 | `meta` 可能新增字段（schema v1 **只增不改**，允许）；不做破坏性变更 |
-| 验证 | URL 模板单测 + fixture 扩展 |
+| 改动点 | ① [domain.rs](../src/domain.rs) `SearchQuery` 扩展 `lang`/`region`/`pages`（默认保持现行为）；② [bing.rs](../src/engines/bing.rs)：`setlang`/`mkt`/`first` 翻页，[duckduckgo.rs](../src/engines/duckduckgo.rs)：`kl`/`s` 翻页；③ [app.rs](../src/app.rs) 翻页聚合循环（按 URL 去重合并、rank 重排、集满 `max_results` 提前停止）；④ CLI/MCP 新增 `--lang/--region/--pages` |
+| 契约影响 | `meta.pages` 新增字段（schema v1 **只增不改**，允许）；不做破坏性变更 |
+| 验证 | URL 模板单测（bing/ddg）+ 翻页聚合集成测试（去重/重排/提前停止）+ lib_api 外部视角 |
 
 ### P2：新引擎（baidu）
 

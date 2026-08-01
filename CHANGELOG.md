@@ -4,6 +4,13 @@
 
 ## [Unreleased]
 
+### Added
+
+- **搜索参数增强（P1）**：`SearchQuery`/`Config` 新增 `lang`/`region`/`pages`；
+  CLI `--lang/--region/--pages` 与 MCP 参数同步；Bing `setlang/mkt/first`、DDG
+  `kl/s` URL 模板；app 翻页聚合（按 URL 去重合并、rank 重排、集满 `max_results`
+  提前停止）；`meta.pages` 记录实际聚合页数（schema v1 只增不改）
+
 ## [0.1.0] - 2026-08-01
 
 ### Added
