@@ -6,7 +6,9 @@
 //! 通道约定：stdout 是 MCP JSON-RPC 通道（禁止任何 println 污染），日志走 stderr。
 
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use std::sync::OnceLock;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::task::{Context, Poll};
 use std::time::Duration;
 
@@ -142,11 +144,19 @@ impl ServerHandler for SearchServer {
 /// 空闲超时轮询间隔（秒级粒度即可，开销可忽略）。
 const IDLE_POLL: Duration = Duration::from_secs(1);
 
+/// 距进程启动的单调纳秒数。`Instant` 无法原子化，故存其到启动点的差值（u64），
+/// 使空闲时间戳可用 `AtomicU64` 无锁共享（读多写少、Relaxed 序即足够）。
+fn monotonic_nanos() -> u64 {
+    static START: OnceLock<tokio::time::Instant> = OnceLock::new();
+    let start = *START.get_or_init(tokio::time::Instant::now);
+    start.elapsed().as_nanos() as u64
+}
+
 /// 包装 stdin 的读端：每次读到数据时刷新 `last_activity`，供空闲超时判定。
 /// 客户端（agent）的任何请求都会经过 stdin 读取，因此"最近读取时间"即"最近活动时间"。
 struct ActivityReader<R> {
     inner: R,
-    last_activity: Arc<Mutex<tokio::time::Instant>>,
+    last_activity: Arc<AtomicU64>,
 }
 
 impl<R: AsyncRead + Unpin> AsyncRead for ActivityReader<R> {
@@ -158,9 +168,8 @@ impl<R: AsyncRead + Unpin> AsyncRead for ActivityReader<R> {
         let filled_before = buf.filled().len();
         let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
         if poll.is_ready() && buf.filled().len() > filled_before {
-            if let Ok(mut last) = self.last_activity.lock() {
-                *last = tokio::time::Instant::now();
-            }
+            self.last_activity
+                .store(monotonic_nanos(), Ordering::Relaxed);
         }
         poll
     }
@@ -177,7 +186,7 @@ pub async fn serve_stdio(idle: Option<Duration>) -> Result<(), Error> {
     };
 
     let (stdin, stdout) = rmcp::transport::stdio();
-    let last_activity = Arc::new(Mutex::new(tokio::time::Instant::now()));
+    let last_activity = Arc::new(AtomicU64::new(monotonic_nanos()));
     let reader = ActivityReader {
         inner: stdin,
         last_activity: last_activity.clone(),
@@ -221,8 +230,10 @@ pub async fn serve_stdio(idle: Option<Duration>) -> Result<(), Error> {
 }
 
 /// 距最后一次读取（请求活动）是否已超过空闲窗口。
-fn idle_expired(last_activity: &Arc<Mutex<tokio::time::Instant>>, idle: Duration) -> bool {
-    last_activity.lock().unwrap().elapsed() >= idle
+fn idle_expired(last_activity: &AtomicU64, idle: Duration) -> bool {
+    let idle_nanos = idle.as_nanos() as u64;
+    // saturating_sub 防时钟回退/首次加载时 last > now 的假阴性
+    monotonic_nanos().saturating_sub(last_activity.load(Ordering::Relaxed)) >= idle_nanos
 }
 
 /// 一直运行到 stdin EOF（客户端关闭连接）。
