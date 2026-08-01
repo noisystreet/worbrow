@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- **结果契约增强（P1）**：`SearchResult` 新增 `published_at`（发布日期，摘要尽力提取）、
+  `is_ad`（广告标记，DDG 广告位标记、Bing 选择器天然排除）、`url_resolved`（是否已解
+  跳转，uddg/ck-a 展开标记，agent 判断 `url` 可信度）；schema v1 只增不改
+
 ## [0.1.1] - 2026-08-01
 
 ### Added

@@ -23,6 +23,24 @@
 //! assert!(!outcome.results.is_empty());
 //! ```
 //!
+//! # 入口选择（tokio runtime）
+//!
+//! 两个入口，按调用方是否已处于 tokio runtime 选择，**避免嵌套 runtime panic**：
+//!
+//! - [`search`]（同步）：无 runtime 上下文时用——`main`/CLI/脚本/`spawn_blocking` 闭包。
+//!   内部自建 runtime，**勿在 async 上下文调用**
+//! - [`run`]（async）：已有 runtime 时用——MCP handler、`#[tokio::main]`、`#[tokio::test]`，
+//!   直接 `await` 复用外部 runtime
+//!
+//! async 内需要同步阻塞等待结果时：
+//!
+//! ```rust,no_run
+//! use worbrow::{BrowserKind, Config, run};
+//! # let config = Config::new("q", "bing", BrowserKind::Fake);
+//! let handle = tokio::runtime::Handle::current();
+//! let outcome = tokio::task::block_in_place(|| handle.block_on(run(config))).unwrap();
+//! ```
+//!
 //! 自定义引擎（无需复制 `run` 编排）：实现 [`SearchProvider`] 并经
 //! [`Config::with_provider`] 注入。更多示例见 `examples/`。
 

@@ -116,7 +116,9 @@ worbrow "rust 异步" --engine bing --max-results 8 --timeout 60 --json
   "schema_version": 1,
   "query": "rust",
   "results": [{ "rank": 1, "title": "…", "url": "https://…", "snippet": "…",
-                "domain": "example.com", "https": true }],
+                "domain": "example.com", "https": true,
+                "published_at": "2025年5月25日", "is_ad": false,
+                "url_resolved": true }],
   "meta": { "engine": "bing", "started_at": "…", "elapsed_ms": 1200,
             "result_count": 3, "pages": 1, "low_yield": false,
             "captcha": false, "engine_error": null,
@@ -141,6 +143,14 @@ fn main() -> Result<(), worbrow::Error> {
     Ok(())
 }
 ```
+
+两个入口按调用方是否已处于 tokio runtime 选择，**避免嵌套 runtime panic**：
+
+- `search`（同步）：无 runtime 上下文时用（`main`/CLI/脚本/`spawn_blocking` 闭包）；
+  内部自建 runtime，**勿在 async 上下文调用**
+- `run`（async）：已有 runtime 时用（MCP handler / `#[tokio::main]` / `#[tokio::test]`），
+  直接 `await` 复用外部 runtime；async 内需同步阻塞等待时可
+  `tokio::task::block_in_place(|| handle.block_on(run(cfg)))`（需 multi-thread runtime）
 
 - **依赖面**：库消费可用 `default-features = false` 去掉 MCP 依赖（`rmcp`）
   ——`mcp` feature 默认启用仅为服务 CLI 二进制
