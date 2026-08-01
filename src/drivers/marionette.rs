@@ -71,6 +71,30 @@ impl Drop for Inner {
     }
 }
 
+/// 保护**尚未移入 `Inner`** 的 Firefox 子进程：`spawn()` 内部在 await
+/// （端口连接/NewSession）期间被取消/出错时，`tokio::process::Child` 的 Drop
+/// 不会 kill 进程（仅 reaper 收割），必须由本 guard 兜底 start_kill，
+/// 否则残留 Firefox（design.md §8）。成功路径 `into_inner()` 取出移入 Inner。
+struct ChildGuard(Option<Child>);
+
+impl ChildGuard {
+    fn new(child: Child) -> Self {
+        Self(Some(child))
+    }
+    /// 成功取出 child（guard 失效）。
+    fn into_inner(mut self) -> Child {
+        self.0.take().expect("child 尚未被取出")
+    }
+}
+
+impl Drop for ChildGuard {
+    fn drop(&mut self) {
+        if let Some(mut child) = self.0.take() {
+            let _ = child.start_kill();
+        }
+    }
+}
+
 impl MarionetteDriver {
     /// 启动 Firefox 并完成握手：find → 校验版本 → spawn → connect → NewSession →
     /// SetTimeouts（design.md §6.2 步骤 3）。
@@ -100,20 +124,18 @@ impl MarionetteDriver {
         // Firefox 自身的日志（Marionette/webrender 等）重定向丢弃：headless 下会走
         // stdout，污染输出契约管道（design.md §2）；诊断走截图/--dump-html 与 tracing
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        let mut child = cmd
+        let child = cmd
             .spawn()
             .map_err(|e| Error::Env(format!("启动 Firefox（{}）失败: {e}", binary.display())))?;
+        // child 尚未进入 Inner：guard 保证任何错误/取消路径都 start_kill，
+        // 否则 tokio::process::Child 的 Drop 不 kill → 残留 Firefox（design.md §8）
+        let child = ChildGuard::new(child);
 
         let addr = SocketAddr::from(([127, 0, 0, 1], port));
         let transport = match timeout(CONNECT_TIMEOUT, connect_retry(addr)).await {
             Ok(Ok(t)) => t,
-            // child 尚未进入 Inner：必须在此主动 kill，否则连接失败会残留进程（design.md §8）
-            Ok(Err(e)) => {
-                let _ = child.start_kill();
-                return Err(e);
-            }
+            Ok(Err(e)) => return Err(e),
             Err(_) => {
-                let _ = child.start_kill();
                 return Err(Error::Timeout(
                     "等待 Firefox Marionette 端口超时（firefox 启动失败或端口被占用）".into(),
                 ));
@@ -122,7 +144,7 @@ impl MarionetteDriver {
 
         let mut inner = Inner {
             transport,
-            child: Some(child),
+            child: Some(child.into_inner()),
             profile: Some(profile),
         };
         // 建会话限时：resolve 在 app timeout 之外，无自身超时会导致 agent 侧卡死

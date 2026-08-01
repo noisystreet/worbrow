@@ -10,6 +10,12 @@ use worbrow::BrowserKind;
 use worbrow::drivers;
 use worbrow::error::Error;
 
+/// 进程计数断言依赖全局 pgrep，并发测试的浏览器进程会互相干扰（count 含其他实例）：
+/// 真机冒烟必须串行执行。`cargo test` 无法按文件设置 `--test-threads`，用共享锁替代——
+/// 所有 spawn 浏览器的测试开头获取该锁。
+static PROC_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
 /// 统计本工具启动的 Chrome（按临时 user-data-dir 路径特征隔离）。
 fn chrome_count() -> usize {
     let out = Command::new("pgrep")
@@ -28,6 +34,7 @@ fn chrome_count() -> usize {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn spawn_then_drop_kills_chrome() {
+    let _lock = PROC_LOCK.lock().await;
     let before = chrome_count();
     {
         let _driver = drivers::resolve(BrowserKind::Chrome)
@@ -52,6 +59,7 @@ async fn spawn_then_drop_kills_chrome() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn abort_cancels_and_kills_browser() {
+    let _lock = PROC_LOCK.lock().await;
     let before = chrome_count();
     let handle = tokio::spawn(async move {
         let mut driver = drivers::resolve(BrowserKind::Chrome)
@@ -85,6 +93,7 @@ async fn abort_cancels_and_kills_browser() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn search_timeout_recycles_browser() {
+    let _lock = PROC_LOCK.lock().await;
     let before = chrome_count();
     let cfg = worbrow::Config::new("rust", "bing", BrowserKind::Chrome)
         .with_timeout(Duration::from_millis(100))
@@ -104,6 +113,7 @@ async fn search_timeout_recycles_browser() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn end_to_end_on_data_url() {
+    let _lock = PROC_LOCK.lock().await;
     let mut driver = drivers::resolve(BrowserKind::Chrome)
         .await
         .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");
@@ -141,6 +151,7 @@ async fn end_to_end_on_data_url() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn wait_for_missing_selector_times_out() {
+    let _lock = PROC_LOCK.lock().await;
     let mut driver = drivers::resolve(BrowserKind::Chrome)
         .await
         .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");
@@ -161,6 +172,7 @@ async fn wait_for_missing_selector_times_out() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn concurrent_spawns_use_distinct_ports() {
+    let _lock = PROC_LOCK.lock().await;
     let (a, b) = tokio::join!(
         drivers::resolve(BrowserKind::Chrome),
         drivers::resolve(BrowserKind::Chrome)
@@ -173,6 +185,7 @@ async fn concurrent_spawns_use_distinct_ports() {
 #[tokio::test]
 #[ignore = "需要本机 Chrome/Chromium ≥ 109"]
 async fn navigate_invalid_url_errors_instead_of_hanging() {
+    let _lock = PROC_LOCK.lock().await;
     let mut driver = drivers::resolve(BrowserKind::Chrome)
         .await
         .expect("spawn 应成功（需要本机 Chrome/Chromium ≥ 109）");

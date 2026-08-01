@@ -159,14 +159,18 @@ impl SessionPool {
     }
 
     /// reaper 后台循环：周期回收过期空闲会话；池被 Drop（Weak 升级失败）即退出。
+    ///
+    /// **不跨 await 持有 `Arc<Self>`**：`pool.upgrade()` 的临时强引用必须在 await 前
+    /// 释放，否则 reaper 自身成为池的强引用，SessionPool 永不 Drop（泄漏浏览器进程）。
     async fn reaper_loop(pool: Weak<Self>) {
         loop {
-            let Some(this) = pool.upgrade() else {
-                return;
+            // 短暂 upgrade 读取 interval 后立即释放（不跨 await 持有）
+            let interval = match pool.upgrade() {
+                Some(this) => (this.idle_ttl / 2).max(Duration::from_millis(100)),
+                None => return,
             };
-            // 检查间隔 = TTL 的一半，下限 100ms（测试注入短 TTL 可快速观测回收）
-            let interval = (this.idle_ttl / 2).max(Duration::from_millis(100));
             tokio::time::sleep(interval).await;
+            // 短暂 upgrade 执行回收后立即释放
             let Some(this) = pool.upgrade() else {
                 return;
             };
