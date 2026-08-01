@@ -4,6 +4,8 @@
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-08-01
+
 ### Added
 
 - **搜索参数增强（P1）**：`SearchQuery`/`Config` 新增 `lang`/`region`/`pages`；
