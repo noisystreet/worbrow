@@ -12,6 +12,7 @@ mod discovery;
 mod fake;
 mod jsonrpc;
 mod marionette;
+mod pool;
 
 use crate::domain::BrowserKind;
 use crate::error::Error;
@@ -20,6 +21,10 @@ use fake::FakeDriver;
 
 /// 二进制发现（包内自检使用，如 `DoctorReport`；不对外，ADR-006）。
 pub(crate) use discovery::{browser_major_version, find_browser};
+
+/// 会话池（MCP 长驻进程内复用浏览器；drivers 内部服务，供 mcp 与冒烟测试使用，
+/// 不 re-export 到 crate 根，不属稳定 API（ADR-006））。
+pub use pool::{SessionGuard, SessionPool};
 
 /// 后端注册表：`--browser` 参数值 → `Box<dyn BrowserDriver>`。
 ///

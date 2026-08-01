@@ -22,11 +22,55 @@ use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::app;
 use crate::domain::{BrowserKind, Freshness, SafesearchLevel};
+use crate::drivers::SessionPool;
 use crate::error::Error;
 
-/// MCP server：`web_search` 工具的唯一宿主。
-#[derive(Debug, Clone, Default)]
-pub struct SearchServer;
+/// MCP 会话池默认配置（roadmap-session-pool.md §6 已定决策）。
+const DEFAULT_MAX_SESSIONS: usize = 1;
+const DEFAULT_IDLE_TTL: Duration = Duration::from_secs(60);
+
+/// 会话池注册表：按浏览器后端各持一个池（fake/chrome/firefox 不混池，避免并发
+/// profile 冲突；spawn 惰性——只有 acquire 时才真正启动浏览器进程）。
+#[derive(Debug)]
+struct PoolRegistry {
+    fake: Arc<SessionPool>,
+    chrome: Arc<SessionPool>,
+    firefox: Arc<SessionPool>,
+}
+
+impl PoolRegistry {
+    fn new(max_sessions: usize, idle_ttl: Duration) -> Self {
+        Self {
+            fake: SessionPool::new(BrowserKind::Fake, max_sessions, idle_ttl, 4),
+            chrome: SessionPool::new(BrowserKind::Chrome, max_sessions, idle_ttl, 4),
+            firefox: SessionPool::new(BrowserKind::Firefox, max_sessions, idle_ttl, 4),
+        }
+    }
+
+    fn pool_for(&self, kind: BrowserKind) -> &Arc<SessionPool> {
+        match kind {
+            BrowserKind::Fake => &self.fake,
+            BrowserKind::Chrome => &self.chrome,
+            BrowserKind::Firefox => &self.firefox,
+        }
+    }
+}
+
+/// MCP server：`web_search` 工具的唯一宿主；持会话池复用浏览器进程
+/// （MCP 长驻场景消除每次搜索 spawn 2-5s 开销，roadmap-session-pool.md）。
+#[derive(Debug, Clone)]
+pub struct SearchServer {
+    pools: Arc<PoolRegistry>,
+}
+
+impl SearchServer {
+    /// 以指定池配置创建 server（MCP 长驻进程内共享）。
+    fn with_pools(max_sessions: usize, idle_ttl: Duration) -> Self {
+        Self {
+            pools: Arc::new(PoolRegistry::new(max_sessions, idle_ttl)),
+        }
+    }
+}
 
 /// `web_search` 工具输入参数（schemars 自动生成 JSON Schema）。
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
@@ -180,6 +224,10 @@ impl SearchServer {
 #[tool_router]
 impl SearchServer {
     /// 执行一次搜索引擎搜索（MCP 工具）。
+    ///
+    /// 池化路径：`acquire` 借出会话（复用浏览器进程）→ `app::run_with` 执行 →
+    /// 按错误类型判定健康（网络/超时错误 → 标记不健康丢弃重建；其余错误浏览器
+    /// 本身健康可复用）→ Drop 归还（roadmap-session-pool.md）。
     #[tool(
         name = "web_search",
         description = "驱动本机 headless 浏览器执行搜索引擎搜索，返回稳定 JSON 契约（schema_version=1 的成功/失败包）"
@@ -211,14 +259,31 @@ impl SearchServer {
             .with_site(params.site)
             .with_filetype(params.filetype);
 
-        match app::run(config).await {
+        // 借出会话（复用浏览器进程）；spawn 失败 → 工具级错误
+        let mut guard = match self.pools.pool_for(browser).acquire().await {
+            Ok(g) => g,
+            Err(err) => {
+                return CallToolResult::error(vec![ContentBlock::text(crate::output::failure(
+                    &err,
+                ))]);
+            }
+        };
+
+        let outcome = app::run_with(guard.driver(), config).await;
+        // 健康判定：网络/超时 → 会话可能已损坏（浏览器崩溃/连接断开），丢弃重建；
+        // 其余（验证码/解析/参数）→ 浏览器本身健康，可复用
+        match outcome {
             Ok(outcome) => CallToolResult::success(vec![ContentBlock::text(
                 crate::output::success(&outcome.query, &outcome.results, &outcome.meta),
             )]),
             Err(err) => {
+                if matches!(err, Error::Network(_) | Error::Timeout(_)) {
+                    guard.mark_unhealthy();
+                }
                 CallToolResult::error(vec![ContentBlock::text(crate::output::failure(&err))])
             }
         }
+        // guard 在此 Drop：健康 → 归还池；不健康 → 丢弃（重建）
     }
 }
 
@@ -266,14 +331,36 @@ impl<R: AsyncRead + Unpin> AsyncRead for ActivityReader<R> {
     }
 }
 
+/// 会话池配置（MCP 长驻场景启用；roadmap-session-pool.md §6 已定决策默认值）。
+#[derive(Debug, Clone, Copy)]
+pub struct PoolConfig {
+    /// 并发上限（默认 1：单用户串行省内存；超限请求排队）。
+    pub max_sessions: usize,
+    /// 空闲会话回收阈值（默认 60s）。
+    pub idle_ttl: Duration,
+}
+
+impl Default for PoolConfig {
+    fn default() -> Self {
+        Self {
+            max_sessions: DEFAULT_MAX_SESSIONS,
+            idle_ttl: DEFAULT_IDLE_TTL,
+        }
+    }
+}
+
 /// 以 MCP stdio server 形态运行。
 ///
 /// - `idle: None`：一直等待客户端断开（stdin EOF）后退出（原行为）。
 /// - `idle: Some(d)`：超过 `d` 时长无任何请求则自动退出（防 agent 崩溃后残留进程）。
 ///   检测覆盖整个生命周期：握手前（等 initialize）与握手后（等工具调用）同样生效。
-pub async fn serve_stdio(idle: Option<Duration>) -> Result<(), Error> {
+pub async fn serve_stdio(idle: Option<Duration>, pool: Option<PoolConfig>) -> Result<(), Error> {
+    let server = SearchServer::with_pools(
+        pool.map(|p| p.max_sessions).unwrap_or(DEFAULT_MAX_SESSIONS),
+        pool.map(|p| p.idle_ttl).unwrap_or(DEFAULT_IDLE_TTL),
+    );
     let Some(idle) = idle else {
-        return serve_until_eof().await;
+        return serve_until_eof(server).await;
     };
 
     let (stdin, stdout) = rmcp::transport::stdio();
@@ -285,7 +372,7 @@ pub async fn serve_stdio(idle: Option<Duration>) -> Result<(), Error> {
 
     // 阶段一：等待握手（initialize）。rmcp 在收到 initialize 前不返回 RunningService，
     // 因此空闲检测必须覆盖此阶段，否则"未握手即崩溃"的 agent 仍会残留进程。
-    let mut serve_fut = Box::pin(SearchServer.serve((reader, stdout)));
+    let mut serve_fut = Box::pin(server.serve((reader, stdout)));
     let running = loop {
         tokio::select! {
             r = &mut serve_fut => {
@@ -328,8 +415,8 @@ fn idle_expired(last_activity: &AtomicU64, idle: Duration) -> bool {
 }
 
 /// 一直运行到 stdin EOF（客户端关闭连接）。
-async fn serve_until_eof() -> Result<(), Error> {
-    let running = SearchServer
+async fn serve_until_eof(server: SearchServer) -> Result<(), Error> {
+    let running = server
         .serve(rmcp::transport::stdio())
         .await
         .map_err(|e| Error::Internal(format!("MCP server 初始化失败: {e}")))?;

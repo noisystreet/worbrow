@@ -187,3 +187,53 @@ async fn navigate_invalid_url_errors_instead_of_hanging() {
     .await;
     assert!(result.is_ok(), "navigate 不应挂死（40s 无响应即失败）");
 }
+
+/// 会话池复用：连续两次 acquire 复用同一 Firefox 进程（进程数不增长），
+/// 且归还后 TTL 内再借出仍是同一进程（roadmap-session-pool.md §5 真机冒烟）。
+#[tokio::test]
+#[ignore = "需要本机 Firefox"]
+async fn pool_reuses_same_firefox_process() {
+    use worbrow::drivers::SessionPool;
+
+    let before = firefox_count();
+    let pool = SessionPool::new(BrowserKind::Firefox, 1, Duration::from_secs(60), 4);
+
+    // 第一次 acquire：启动一个 Firefox 进程
+    let g1 = pool
+        .acquire()
+        .await
+        .expect("首次 acquire 应成功（需要本机 Firefox）");
+    let mut spawned = false;
+    for _ in 0..75 {
+        if firefox_count() > before {
+            spawned = true;
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert!(
+        spawned,
+        "首次 acquire 后应有 Firefox 进程（before={before}）"
+    );
+    drop(g1);
+
+    // 第二次 acquire（TTL 内）：应复用同一进程，进程数不增长
+    let g2 = pool.acquire().await.expect("复用 acquire 应成功");
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    assert_eq!(
+        firefox_count(),
+        before + 1,
+        "池化后进程数应保持 1（复用而非新建）"
+    );
+    drop(g2);
+
+    // 显式 drop 池：空闲会话随池 Drop → driver Drop → kill Firefox（design.md §8）
+    drop(pool);
+    for _ in 0..20 {
+        if firefox_count() <= before {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    assert_eq!(firefox_count(), before, "池 Drop 后 Firefox 应被清理");
+}
