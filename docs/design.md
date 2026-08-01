@@ -211,7 +211,12 @@ pub struct SearchQuery {
     pub lang: Option<String>,   // 结果语言（如 zh-hans，Bing setlang）
     pub region: Option<String>, // 结果地域/市场（如 zh-CN，Bing mkt / DDG kl）
     pub pages: usize,           // 翻页聚合页数（≥1；1 = 仅首页）
+    pub freshness: Option<Freshness>,   // 时间过滤（Bing qft / DDG df）；None = 不限时间
+    pub safesearch: Option<SafesearchLevel>, // 安全搜索（Bing adlt / DDG kp）；None = 引擎默认
+    pub site: Option<String>,   // 站点过滤（query 级 site: 语法）；None = 不限
+    pub filetype: Option<String>, // 文件类型过滤（query 级 filetype: 语法）；None = 不限
 }
+// engine_text()：引擎发送的查询文本 = 原 text 追加 site:/filetype:（输出 query 字段保留原始 text）
 ```
 #[derive(Serialize)]
 pub struct SearchResult {

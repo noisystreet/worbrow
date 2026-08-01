@@ -9,6 +9,12 @@
 - **结果契约增强（P1）**：`SearchResult` 新增 `published_at`（发布日期，摘要尽力提取）、
   `is_ad`（广告标记，DDG 广告位标记、Bing 选择器天然排除）、`url_resolved`（是否已解
   跳转，uddg/ck-a 展开标记，agent 判断 `url` 可信度）；schema v1 只增不改
+- **搜索参数补全（P1）**：`SearchQuery`/`Config` 新增 `freshness`（时间过滤，Bing `qft`
+  尽力尝试/DDG `df`）、`safesearch`（安全搜索，Bing `adlt`/DDG `kp`）、`site` 与
+  `filetype`（query 级 `site:`/`filetype:` 语法，零引擎适配）；CLI
+  `--freshness/--safesearch/--site/--filetype` 与 MCP 参数同步（非法枚举值 →
+  工具级错误）；输出 `query` 字段保留原始 text（过滤条件由请求参数表达）；schema v1
+  无变化（Bing `qft` 实网验证不过滤，详见 roadmap-search-params.md §3 风险）
 
 ## [0.1.1] - 2026-08-01
 

@@ -38,7 +38,7 @@
 
 ## 3. 方向与优先级
 
-### P1：时间过滤（freshness）
+### P1：时间过滤（freshness）—— ✅ 已完成（2026-08）
 
 | 项 | 内容 |
 |---|---|
@@ -47,9 +47,9 @@
 | 改动点 | ① [domain.rs](../src/domain.rs) `SearchQuery` 新增 `freshness: Option<Freshness>`（受控枚举，`Freshness::as_engine_param` 映射引擎参数）；② [bing.rs](../src/engines/bing.rs)：`qft=+filterui:age-lt<sec>`（day=86400 / week=604800 / month≈2592000 / year≈31536000）；③ [duckduckgo.rs](../src/engines/duckduckgo.rs)：`df=d\|w\|m\|y`；④ [cli.rs](../src/cli.rs)/[mcp.rs](../src/mcp.rs) 新增参数（`serde(default)` 向后兼容） |
 | 契约影响 | 请求参数新增（CLI/MCP schema 只增）；**输出 schema v1 无变化**（结果即过滤后，meta 不回显） |
 | 验证 | URL 模板单测（bing/ddg 各档位）；CLI/MCP 参数解析测试 |
-| 风险 | Bing `qft` 时间参数可能改版 → 实施前实网验证 + fixture 同步（引擎改版纪律） |
+| 风险 | **Bing `qft` 实网不生效（已验证 2026-08）**：标准端点（mkt=en-US）与 `filters=ex1:"ez5_…"` 变体均不过滤（Bing 改版后明文时间参数被忽略，或需 cookie 配合）；部分网络环境（被劫持到 cn.bing.com 异常端口）所有操作符失效。qft 保留为**尽力尝试**（失效仅"不过滤"，无副作用；Bing 恢复支持即生效）；freshness 实际使用时建议配 DDG（`df` 为官方稳定参数） |
 
-### P1：安全搜索（safesearch）
+### P1：安全搜索（safesearch）—— ✅ 已完成（2026-08）
 
 | 项 | 内容 |
 |---|---|
@@ -60,7 +60,7 @@
 | 验证 | URL 模板单测（bing/ddg 三级映射）；参数解析测试 |
 | 风险 | 低（参数成熟稳定） |
 
-### P1：站点与文件类型过滤（site / filetype）
+### P1：站点与文件类型过滤（site / filetype）—— ✅ 已完成（2026-08）
 
 | 项 | 内容 |
 |---|---|
@@ -87,8 +87,10 @@
 
 ## 6. 开放决策
 
-1. **Bing 时间过滤参数形态**：`qft=+filterui:age-lt<sec>` 与 `filters=ex1:"ez5_…"` 两种实现
-   并存 → 实施前实网验证取稳定者
+1. **Bing 时间过滤参数形态**：实网验证（2026-08）结论——`qft=+filterui:age-lt<sec>` 与
+   `filters=ex1:"ez5_…"` 在标准端点均不过滤（Bing 改版后明文参数被忽略）；且部分网络环境
+   （被代理劫持到 cn.bing.com 异常端口）所有操作符失效。→ 已按验证结论落地：qft 保留为
+   尽力尝试（见 §3 风险），freshness 实际使用建议配 DDG
 2. **safesearch 三级 vs 两级**：Bing 无 moderate → 倾向三级对齐生态（moderate 映射 Bing strict）；
    也可退化为两级（off/strict）降低映射复杂度
 3. **site/filetype 多值**：`--site a --site b`（`site:(a OR b)`）→ 倾向 V1 单值（简单、够用），
