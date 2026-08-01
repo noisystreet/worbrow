@@ -92,13 +92,37 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 验证 | 集成测试：ddg 解析失败→降级 bing 成功（engine_tried 断言）、首引擎成功不降级、全失败返回稳定错误码、低产候选兜底 |
 | 风险 | 降级放大总耗时（全局 timeout 兜底）；同页面多引擎解析差异（fixture 按引擎分开） |
 
+### P1：网络重试与结果缓存（`--retry` / TTL 缓存）
+
+| 项 | 内容 |
+|---|---|
+| 现状 | 瞬时网络/引擎错误直接失败（exit 4）；MCP 长驻进程内相同 query 重复搜索每次都重跑 |
+| 目标 | `--retry <n>` 瞬时错误退避重试；MCP 进程内相同 query 短 TTL 缓存（去重） |
+| 改动点 | ① [app.rs](../src/app.rs)：失败按错误类型重试（网络/瞬时解析错误，指数退避；验证码/参数错不重试）；② 缓存层（LRU + TTL，仅 MCP 长驻场景生效，CLI 单次无状态不缓存）；③ `SearchMeta` 新增 `cached`/`retries` 字段（schema v1 只增不改） |
+| 契约影响 | `meta.cached`/`meta.retries` 新增字段（只增不改）；`--retry` 为请求参数（CLI/MCP schema 只增） |
+| 验证 | 集成测试：重试计数断言（瞬时失败→重试成功）、缓存命中断言（相同 query 二次调用 cached=true） |
+| 风险 | 缓存时效性（短 TTL，如 30-60s）；重试放大延迟（退避封顶） |
+
+### P1：MCP 体验完善（compact 精简模式 + 工具面）
+
+| 项 | 内容 |
+|---|---|
+| 现状 | 单 `web_search` 工具；结果全量返回（完整 snippet），agent 上下文预算敏感时浪费 token |
+| 目标 | `compact` 精简模式（title+url）；`list_engines`/`doctor` 工具（agent 自查环境，无需读错误码） |
+| 改动点 | ① [mcp.rs](../src/mcp.rs)：`SearchParams` 新增 `compact: bool`（结果截断为 title+url）；② 新增 `list_engines`/`doctor` 工具（复用 [engines/mod.rs](../src/engines/mod.rs) `AVAILABLE` 与 [app.rs](../src/app.rs) `DoctorReport`） |
+| 契约影响 | 输出 schema 不变（compact 为请求参数，语义等同 max_results 截断的只读视图）；新工具对既有客户端无感 |
+| 验证 | MCP 测试：compact 输出断言（无 snippet）、新工具出现在 tools/list |
+| 风险 | 低 |
+
 ### P2：新引擎（baidu）
 
 复用 `SearchProvider` 模板 + fixture（见 [CONTRIBUTING.md](../CONTRIBUTING.md) 常见任务）。前置评估：反爬强度、headless 可达性；失败走 `EngineFailure`（exit 4）。若收益不足可推迟或不做。
 
 ## 4. 实施顺序
 
-CDP 后端 → 会话复用 → 搜索参数增强 →（P2 baidu 视评估）
+CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → 引擎降级 →
+搜索参数补全（[roadmap-search-params.md](roadmap-search-params.md)）→
+网络重试与缓存 → MCP 体验完善 →（P2 baidu 视评估）
 
 - 每步独立可验证、可回退；完成后同步 `doctor`、README、CHANGELOG
 - 不承诺时间；重要取舍（如 CDP 传输层、会话池默认策略）以 ADR 记录
@@ -114,3 +138,6 @@ CDP 后端 → 会话复用 → 搜索参数增强 →（P2 baidu 视评估）
 
 1. **CDP 传输层**：沿用已预留的 `tokio-tungstenite`（与 ADR-002 一致），还是评估更轻替代 → 倾向沿用
 2. **会话池默认策略**：CLI 单次搜索（用完即回收）与 MCP 长驻（TTL 空闲回收）是否分策略 → 倾向 MCP 场景默认启用
+3. **缓存作用域与 TTL**：仅 MCP 长驻场景生效（CLI 单次无状态不缓存）；TTL 默认值（如 30-60s）与
+   `--no-cache` 逃生阀是否必要待定
+4. **重试触发范围**：网络/瞬时解析错误重试；验证码阻止与参数错误不重试（避免无意义放大延迟）
