@@ -143,7 +143,7 @@ impl DoctorReport {
 /// 同步入口：内部创建 tokio runtime 并阻塞执行一次搜索。
 ///
 /// CLI/脚本等非 async 调用方无需自行管理 runtime；异步场景（如 MCP）直接使用 [`run`]。
-pub fn run_sync(config: Config) -> Result<Outcome, Error> {
+pub fn search(config: Config) -> Result<Outcome, Error> {
     let runtime = tokio::runtime::Runtime::new()
         .map_err(|e| Error::Internal(format!("tokio runtime 初始化失败: {e}")))?;
     runtime.block_on(run(config))

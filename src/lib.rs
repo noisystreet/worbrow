@@ -15,9 +15,7 @@
 
 pub mod app;
 pub(crate) mod domain;
-/// 同步便捷入口（等价于 `run_sync`，主用例动词化）。
-pub use app::run_sync as search;
-pub use app::{BackendStatus, Config, DoctorReport, Outcome, run, run_sync};
+pub use app::{BackendStatus, Config, DoctorReport, Outcome, run, search};
 pub use domain::{
     BrowserKind, DEFAULT_BROWSER, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS,
     EngineError, SearchMeta, SearchQuery, SearchResult,

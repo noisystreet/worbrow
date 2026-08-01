@@ -57,7 +57,7 @@ fn run_cli() -> ExitCode {
         .with_dump_html(cli.dump_html);
 
     // 同步入口：内部管理 tokio runtime（CLI 保持薄封装）
-    finish(&app::run_sync(config), json)
+    finish(&app::search(config), json)
 }
 
 /// 输出收口：`--json` → 契约包；否则人读文本。退出码按 §7.2 映射。
