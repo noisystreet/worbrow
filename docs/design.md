@@ -79,6 +79,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-004](adr/0004-output-contract-json.md) | 输出契约 = JSON schema v1 + 语义化退出码 | 已接受 |
 | [ADR-005](adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`worbrow mcp`，rmcp 2.2） | 已接受 |
 | [ADR-006](adr/0006-lib-api-surface.md) | 库 API 公开面 = 类型级顶层 re-export（外部消费者） | 已接受 |
+| [ADR-007](adr/0007-mcp-session-pool.md) | MCP 会话池化（浏览器进程复用 + 空闲 TTL 回收） | 已接受 |
 
 ---
 
@@ -184,10 +185,12 @@ clap derive 定义参数（示意）：
 ### 6.2 用例编排层（`app.rs`）
 
 ```
-run(config) -> Outcome
+run(config) -> Outcome            # CLI：resolve → run_with → Drop 回收
+run_with(&mut driver, config)     # MCP：从会话池 acquire → run_with → 归还（ADR-007）
  1. 解析并校验 query（长度、URL 注入防护）
  2. 引擎顺序解析：config.engine 逗号分隔 = 尝试链（如 "bing,duckduckgo"）
- 3. driver_registry.resolve(config.browser) → Box<dyn BrowserDriver>（cdp 或 marionette）
+ 3. 取 driver：CLI = driver_registry.resolve(browser)；MCP = SessionPool.acquire()
+    （复用长驻浏览器进程，见 roadmap-session-pool.md）
  4. 包整体 timeout(→ 124)，内部为引擎降级循环：
     a. 按序 resolve 引擎 → search_one（5-8 步）
     b. 成功且非低产（≥3 条）→ 采用，停止
@@ -198,7 +201,8 @@ run(config) -> Outcome
  6. 轮询 wait_for_load（网络 idle 或结果选择器出现，带二级超时）
  7. provider.detect_captcha(html)? → 标记 captcha=true（不中止，见 §9）
  8. provider.parse(html) → Vec<SearchResult>（跨页去重合并、截断到 max_results）
- 9. 可选 screenshot；关闭浏览器（Drop 保证：浏览器进程随本进程退出回收）
+ 9. 可选 screenshot；driver 生命周期：CLI Drop 即回收；MCP 归还池（TTL/健康判定
+    由池管理，见 §8）
 10. 组装 Outcome{results, meta（engine=最终引擎，engine_tried=尝试链）} → output 序列化
 ```
 
@@ -362,6 +366,9 @@ pub trait SearchProvider: Send + Sync {
   **移入超时闭包**——超时取消、错误提前返回或显式 abort 时闭包 drop → driver drop →
   杀浏览器子进程（CDP 另加 `wait()` 收割防 zombie；Marionette 由 tokio reaper 收割）；
   成功路径 driver 归还，随函数返回 Drop。无常驻句柄、无残留进程。
+  **MCP 会话池（ADR-007）例外**：driver 生命周期归 `SessionPool` 管理——借出/归还
+  复用浏览器进程；空闲超 TTL 由 reaper 回收、命令错误驱动丢弃重建；MCP 进程退出
+  时池 Drop 全量回收（三路径语义不变）。
 - **重试策略**：工具自身不做静默重试（CLI 无状态，重试应由 agent 决策）；`--retry <n>`
   （瞬时网络错误重试）整体归 V2（见 §13），V1 不含；V1 已支持引擎降级链（§6.2，验证码/
   解析失败/低产自动尝试下一引擎）。
@@ -391,6 +398,8 @@ pub trait SearchProvider: Send + Sync {
 
 - 每个实例 = 1 个浏览器进程（Chrome 约 200MB、Firefox 略低）；agent 并发调用时内存线性增长，
   文档明示建议并发上限（如 ≤4），并建议调用方自行限流
+- **MCP 会话池（ADR-007）**：长驻进程内最多 `--max-sessions` 个浏览器进程（默认 1），
+  空闲超 `--session-ttl` 回收，并发请求排队而非无限 spawn——MCP 场景内存有界
 - **CDP 端口**：用动态端口（`--remote-debugging-port=0`，从 `/json/version` 读回实际端口），
   规避并发实例端口冲突
 - **Marionette 端口**：默认固定 2828，多实例会冲突 → 每实例使用独立临时 profile

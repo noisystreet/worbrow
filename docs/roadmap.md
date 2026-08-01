@@ -47,16 +47,16 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 风险 | `attachToTarget` 的 sessionId 透传（消息需带 sessionId）；Chrome 版本差异（≥109） |
 | 参考 | [ADR-002](adr/0002-browser-driver-protocols.md)；Chrome DevTools Protocol 官方文档 |
 
-### P1：浏览器会话复用 / 池化
+### P1：浏览器会话复用 / 池化 —— ✅ 已完成（2026-08，[ADR-007](adr/0007-mcp-session-pool.md)）
 
 | 项 | 内容 |
 |---|---|
 | 现状 | 每次搜索 spawn 新 Firefox（启动 + NewSession 约 2-5s），MCP 高频调用开销显著 |
-| 目标 | 长驻会话复用；空闲回收防残留 |
-| 改动点 | ① drivers 层抽出 `Session` 抽象（连接/命令/超时/健康检查），与 `BrowserDriver` 解耦；② app 层持会话池（LRU + 上限 + 空闲 TTL 回收，可复用 [mcp.rs](../src/mcp.rs) 的原子化空闲计时经验）；③ 并发上限与排队；搜索间状态隔离（navigate 前重置） |
-| 验证 | 集成测试（fake 时序模拟复用/回收）；真机冒烟扩展「连续多次搜索复用同一进程」 |
-| 风险 | 浏览器进程泄漏、并发 profile 冲突、崩溃会话复活（需健康检查/重连） |
-| 参考 | [marionette.rs](../src/drivers/marionette.rs) 的 Drop 回收；[mcp.rs](../src/mcp.rs) 空闲超时 |
+| 目标 | 长驻会话复用；空闲回收防残留；并发上限与排队；崩溃会话复活 |
+| 改动点 | ① [drivers/pool.rs](../src/drivers/pool.rs) `SessionPool`（空闲 LIFO + Semaphore 限并发 + TTL reaper 后台回收）；② [app.rs](../src/app.rs) 拆出 `run_with`（`run` 与 MCP 共用编排）；③ MCP `SearchServer` 持池，`mcp` 子命令新增 `--max-sessions`/`--session-ttl`（默认 1/60s）；④ 健康判定 = 命令错误驱动（Network/Timeout → 重建）；⑤ 搜索间状态隔离（navigate 覆盖，无需额外清理） |
+| 验证 | 池单测（复用/TTL/健康丢弃/排队）+ app 集成（run_with 与 run 等价）+ MCP 集成（fake 回归）+ 真机冒烟（`pool_reuses_same_firefox_process` 复用同一进程 pid） |
+| 风险 | 浏览器进程泄漏（TTL + Drop 双保险）、崩溃会话复活（错误驱动健康判定 → 重建）、并发 profile 冲突（池内单一类型 + Semaphore 排队） |
+| 参考 | [roadmap-session-pool.md](roadmap-session-pool.md)（专项设计）；[ADR-007](adr/0007-mcp-session-pool.md) |
 
 ### P1：搜索参数增强 —— ✅ 已完成（2026-08）
 
@@ -137,6 +137,8 @@ CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → �
 搜索参数补全（[roadmap-search-params.md](roadmap-search-params.md)）→
 网络重试与缓存 → MCP 体验完善 →（P2 baidu 视评估）
 
+> 会话复用：已落地（ADR-007，见 §3 P1 章节）。
+
 - 每步独立可验证、可回退；完成后同步 `doctor`、README、CHANGELOG
 - 不承诺时间；重要取舍（如 CDP 传输层、会话池默认策略）以 ADR 记录
 
@@ -150,7 +152,9 @@ CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → �
 ## 6. 开放决策
 
 1. **CDP 传输层**：沿用已预留的 `tokio-tungstenite`（与 ADR-002 一致），还是评估更轻替代 → 倾向沿用
-2. **会话池默认策略**：CLI 单次搜索（用完即回收）与 MCP 长驻（TTL 空闲回收）是否分策略 → 倾向 MCP 场景默认启用
+2. **会话池默认策略**：CLI 单次搜索（用完即回收）与 MCP 长驻（TTL 空闲回收）是否分策略 →
+   倾向 MCP 场景默认启用；默认 `--max-sessions`/`--session-ttl` 取值见
+   [roadmap-session-pool.md](roadmap-session-pool.md) §6
 3. **缓存作用域与 TTL**：仅 MCP 长驻场景生效（CLI 单次无状态不缓存）；TTL 默认值（如 30-60s）与
    `--no-cache` 逃生阀是否必要待定
 4. **重试触发范围**：网络/瞬时解析错误重试；验证码阻止与参数错误不重试（避免无意义放大延迟）
