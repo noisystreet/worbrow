@@ -43,12 +43,63 @@ cargo build --release
 ```
 
 以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露 `web_search` 工具
-（query/engine/browser/max_results/timeout），工具结果复用输出契约（schema v1）。
+（query/engine/browser/max_results/timeout/lang/region/pages），工具结果复用
+输出契约（schema v1）。
 设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
 （若不需要 MCP：`cargo build --no-default-features`）
 
 `worbrow mcp --idle-timeout <secs>`：超过该时长无任何请求自动退出（防 agent 崩溃后
 残留进程；0 = 禁用，默认）。
+
+## Agent 集成
+
+worbrow 提供两种 agent 接入方式：**MCP**（推荐，长驻进程 + 工具语义）与 **CLI 子进程**
+（零依赖、单次调用）。两条路径共享同一内核与输出契约（schema v1）。
+
+### Claude Code
+
+在 `claude_desktop_config.json`（或 `.claude.json` 的 `mcpServers`）注册：
+
+```json
+{
+  "mcpServers": {
+    "worbrow": {
+      "command": "worbrow",
+      "args": ["mcp", "--idle-timeout", "300"]
+    }
+  }
+}
+```
+
+> 提示：`--idle-timeout 300` 让长驻进程在 agent 会话空闲 5 分钟后自动退出，避免残留。
+> 需保证 `worbrow` 在 PATH（`make deb` 安装后自动满足）。
+
+### Cursor / 通用 MCP 客户端
+
+项目级 `.mcp.json`（Cursor）或客户端全局配置等价结构：
+
+```json
+{
+  "mcpServers": {
+    "worbrow": {
+      "command": "worbrow",
+      "args": ["mcp", "--idle-timeout", "300"]
+    }
+  }
+}
+```
+
+工具暴露：`web_search`（参数含 engine/browser/max_results/timeout/lang/region/pages）。
+
+### CLI 子进程（无 MCP 客户端时）
+
+```bash
+worbrow "rust 异步" --engine bing --max-results 8 --timeout 60 --json
+```
+
+- 读 **stdout** JSON（`schema_version` 校验），日志在 **stderr**
+- 非 0 退出码时 stdout 仍输出错误 JSON 包（code/message/detail）
+- 结果条目自带 `domain`/`https`，无需自行解析 URL 判断来源
 
 ## 调用契约（agent 侧）
 
@@ -63,7 +114,8 @@ cargo build --release
 {
   "schema_version": 1,
   "query": "rust",
-  "results": [{ "rank": 1, "title": "…", "url": "https://…", "snippet": "…" }],
+  "results": [{ "rank": 1, "title": "…", "url": "https://…", "snippet": "…",
+                "domain": "example.com", "https": true }],
   "meta": { "engine": "bing", "started_at": "…", "elapsed_ms": 1200,
             "result_count": 3, "pages": 1, "low_yield": false,
             "captcha": false, "engine_error": null }

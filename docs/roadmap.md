@@ -68,6 +68,19 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 契约影响 | `meta.pages` 新增字段（schema v1 **只增不改**，允许）；不做破坏性变更 |
 | 验证 | URL 模板单测（bing/ddg）+ 翻页聚合集成测试（去重/重排/提前停止）+ lib_api 外部视角 |
 
+### P1：agent 契约增强（结果字段 domain/https）
+
+| 项 | 内容 |
+|---|---|
+| 现状 | `SearchResult` 仅 rank/title/url/snippet；agent 需自行解析 URL 判断来源可信度 |
+| 目标 | 结果条目直接携带 `domain`（URL host）与 `https`（scheme 判定），供 agent 免解析判断来源 |
+| 改动点 | ① [domain.rs](../src/domain.rs) `SearchResult` 新增 `domain`/`https`（构造时从 url 提取）；② [extract.rs](../src/extract.rs) 新增 `url_origin` 辅助；③ [bing.rs](../src/engines/bing.rs)/[duckduckgo.rs](../src/engines/duckduckgo.rs) 填充 |
+| 契约影响 | 结果对象新增字段（schema v1 **只增不改**，允许）；0.x 破坏性面：struct literal 构造点需同步（记录于 CONTRIBUTING） |
+| 验证 | 引擎 fixture 单测断言 domain/https；集成/输出测试同步 |
+
+> 不做：`published_date`（引擎 HTML 日期无稳定选择器、中英文格式不统一，解析脆弱）；
+> `meta.cached/retries`（依赖缓存/重试功能，落地时再增，schema 只增不改允许）。
+
 ### P2：新引擎（baidu）
 
 复用 `SearchProvider` 模板 + fixture（见 [CONTRIBUTING.md](../CONTRIBUTING.md) 常见任务）。前置评估：反爬强度、headless 可达性；失败走 `EngineFailure`（exit 4）。若收益不足可推迟或不做。
