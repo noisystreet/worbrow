@@ -54,6 +54,11 @@ cargo build --release
 `worbrow mcp --idle-timeout <secs>`：超过该时长无任何请求自动退出（防 agent 崩溃后
 残留进程；0 = 禁用，默认）。
 
+**会话池化（MCP 长驻）**：MCP 进程内复用浏览器进程，消除每次搜索 spawn 2-5s 开销。
+`--max-sessions <n>` 并发上限（默认 1 = 串行复用，超限排队）、`--session-ttl <sec>`
+空闲会话回收阈值（默认 60s）；空闲超 TTL 自动回收、崩溃会话自动重建，对 agent 透明
+（schema v1 不变）。设计见 [ADR-007](docs/adr/0007-mcp-session-pool.md)。
+
 ## Agent 集成
 
 worbrow 提供两种 agent 接入方式：**MCP**（推荐，长驻进程 + 工具语义）与 **CLI 子进程**

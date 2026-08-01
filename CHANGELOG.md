@@ -6,6 +6,10 @@
 
 ### Added
 
+- **MCP 会话池化（P1，ADR-007）**：MCP 长驻进程内复用浏览器会话，消除每次搜索
+  spawn 2-5s 开销；`worbrow mcp --max-sessions <n> --session-ttl <sec>`（默认
+  1/60s）；空闲会话 TTL 回收、并发上限排队、崩溃会话错误驱动重建；CLI 单次行为
+  不变；schema v1 / 退出码不变（对 agent 透明）
 - **结果契约增强（P1）**：`SearchResult` 新增 `published_at`（发布日期，摘要尽力提取）、
   `is_ad`（广告标记，DDG 广告位标记、Bing 选择器天然排除）、`url_resolved`（是否已解
   跳转，uddg/ck-a 展开标记，agent 判断 `url` 可信度）；schema v1 只增不改
