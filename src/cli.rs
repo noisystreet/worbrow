@@ -63,7 +63,11 @@ pub enum Command {
     List,
     /// 以 MCP stdio server 形态运行
     #[cfg(feature = "mcp")]
-    Mcp,
+    Mcp {
+        /// 空闲超时（秒）：超过该时长无任何请求则自动退出；0 = 禁用（等客户端断开）
+        #[arg(long, default_value_t = 0)]
+        idle_timeout: u64,
+    },
 }
 
 /// 搜索引擎（clap value_enum）。

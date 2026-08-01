@@ -5,6 +5,9 @@
 //!
 //! 通道约定：stdout 是 MCP JSON-RPC 通道（禁止任何 println 污染），日志走 stderr。
 
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 use std::time::Duration;
 
 use rmcp::{
@@ -13,6 +16,7 @@ use rmcp::{
     model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo},
     schemars, tool, tool_handler, tool_router,
 };
+use tokio::io::{AsyncRead, ReadBuf};
 
 use crate::app;
 use crate::drivers::BrowserKind;
@@ -135,8 +139,94 @@ impl ServerHandler for SearchServer {
     }
 }
 
-/// 以 MCP stdio server 形态运行，直到客户端关闭连接（stdin EOF）。
-pub async fn serve_stdio() -> Result<(), Error> {
+/// 空闲超时轮询间隔（秒级粒度即可，开销可忽略）。
+const IDLE_POLL: Duration = Duration::from_secs(1);
+
+/// 包装 stdin 的读端：每次读到数据时刷新 `last_activity`，供空闲超时判定。
+/// 客户端（agent）的任何请求都会经过 stdin 读取，因此"最近读取时间"即"最近活动时间"。
+struct ActivityReader<R> {
+    inner: R,
+    last_activity: Arc<Mutex<tokio::time::Instant>>,
+}
+
+impl<R: AsyncRead + Unpin> AsyncRead for ActivityReader<R> {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        let filled_before = buf.filled().len();
+        let poll = Pin::new(&mut self.inner).poll_read(cx, buf);
+        if poll.is_ready() && buf.filled().len() > filled_before {
+            if let Ok(mut last) = self.last_activity.lock() {
+                *last = tokio::time::Instant::now();
+            }
+        }
+        poll
+    }
+}
+
+/// 以 MCP stdio server 形态运行。
+///
+/// - `idle: None`：一直等待客户端断开（stdin EOF）后退出（原行为）。
+/// - `idle: Some(d)`：超过 `d` 时长无任何请求则自动退出（防 agent 崩溃后残留进程）。
+///   检测覆盖整个生命周期：握手前（等 initialize）与握手后（等工具调用）同样生效。
+pub async fn serve_stdio(idle: Option<Duration>) -> Result<(), Error> {
+    let Some(idle) = idle else {
+        return serve_until_eof().await;
+    };
+
+    let (stdin, stdout) = rmcp::transport::stdio();
+    let last_activity = Arc::new(Mutex::new(tokio::time::Instant::now()));
+    let reader = ActivityReader {
+        inner: stdin,
+        last_activity: last_activity.clone(),
+    };
+
+    // 阶段一：等待握手（initialize）。rmcp 在收到 initialize 前不返回 RunningService，
+    // 因此空闲检测必须覆盖此阶段，否则"未握手即崩溃"的 agent 仍会残留进程。
+    let mut serve_fut = Box::pin(SearchServer.serve((reader, stdout)));
+    let running = loop {
+        tokio::select! {
+            r = &mut serve_fut => {
+                break r.map_err(|e| Error::Internal(format!("MCP server 初始化失败: {e}")))?;
+            }
+            _ = tokio::time::sleep(IDLE_POLL) => {
+                if idle_expired(&last_activity, idle) {
+                    return Ok(());
+                }
+            }
+        }
+    };
+
+    // 阶段二：握手完成，等待后续请求直到 EOF 或空闲超时。
+    let mut waiting = Box::pin(running.waiting());
+    loop {
+        tokio::select! {
+            r = &mut waiting => {
+                r.map_err(|e| Error::Internal(format!("MCP server 运行失败: {e}")))?;
+                return Ok(());
+            }
+            _ = tokio::time::sleep(IDLE_POLL) => {
+                if idle_expired(&last_activity, idle) {
+                    tracing::info!(
+                        idle_secs = idle.as_secs(),
+                        "MCP server 空闲超时，自动退出"
+                    );
+                    return Ok(());
+                }
+            }
+        }
+    }
+}
+
+/// 距最后一次读取（请求活动）是否已超过空闲窗口。
+fn idle_expired(last_activity: &Arc<Mutex<tokio::time::Instant>>, idle: Duration) -> bool {
+    last_activity.lock().unwrap().elapsed() >= idle
+}
+
+/// 一直运行到 stdin EOF（客户端关闭连接）。
+async fn serve_until_eof() -> Result<(), Error> {
     let running = SearchServer
         .serve(rmcp::transport::stdio())
         .await

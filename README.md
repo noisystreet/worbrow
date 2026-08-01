@@ -40,6 +40,9 @@ cargo build --release
 设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md)。
 （若不需要 MCP：`cargo build --no-default-features`）
 
+`worbrow mcp --idle-timeout <secs>`：超过该时长无任何请求自动退出（防 agent 崩溃后
+残留进程；0 = 禁用，默认）。
+
 ## 调用契约（agent 侧）
 
 - **stdout** 仅输出 JSON（`--json`），日志全部走 stderr

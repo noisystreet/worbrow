@@ -6,6 +6,8 @@
 
 ### Changed
 
+- **MCP server 支持空闲超时**：`worbrow mcp --idle-timeout <secs>` 超过该时长无任何
+  请求自动退出（默认 0 = 禁用），覆盖握手前与握手后阶段，防 agent 崩溃后残留进程
 - **默认搜索引擎改为 `bing`**（CLI 与 MCP 工具一致，原 `duckduckgo`）
 - **默认硬超时改为 60s**（原 20s）
 - **默认启用 `mcp` feature**：普通 `cargo build` / `make build` 即含 `worbrow mcp`；

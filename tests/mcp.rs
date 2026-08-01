@@ -27,9 +27,19 @@ struct McpClient {
 }
 
 impl McpClient {
+    /// 默认（禁用空闲超时）。
     async fn spawn() -> McpClient {
-        let mut child = Command::new(env!("CARGO_BIN_EXE_worbrow"))
-            .arg("mcp")
+        Self::spawn_with_idle(0).await
+    }
+
+    /// 以指定空闲超时（秒，0 = 禁用）启动 server。
+    async fn spawn_with_idle(idle_secs: u64) -> McpClient {
+        let mut cmd = Command::new(env!("CARGO_BIN_EXE_worbrow"));
+        cmd.arg("mcp");
+        if idle_secs > 0 {
+            cmd.arg("--idle-timeout").arg(idle_secs.to_string());
+        }
+        let mut child = cmd
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())
@@ -240,5 +250,36 @@ async fn tools_call_unknown_tool_is_protocol_error() {
         "未知工具应返回协议错误（实际: {resp}）"
     );
     assert_eq!(resp["error"]["code"], -32602);
+    client.kill().await;
+}
+
+/// 空闲超时：无任何请求时 server 应在超时后自动退出（exit 0），不留残留进程。
+/// 关键：stdin 保持打开（writer 移出后不 drop），验证触发因素是"空闲"而非"EOF"。
+#[tokio::test]
+async fn idle_timeout_exits_when_no_requests() {
+    let client = McpClient::spawn_with_idle(1).await;
+    // 移出 child，writer/reader 保持打开直到 server 退出
+    let mut child = client.child;
+    let status = tokio::time::timeout(Duration::from_secs(8), child.wait())
+        .await
+        .expect("空闲超时后 server 应自动退出")
+        .expect("wait 不应失败");
+    assert_eq!(status.code(), Some(0), "空闲超时应正常退出（exit 0）");
+}
+
+/// 空闲超时不误杀活跃连接：请求活动应重置空闲计时。
+#[tokio::test]
+async fn idle_timeout_resets_on_requests() {
+    let mut client = McpClient::spawn_with_idle(2).await;
+    client.initialize().await;
+    // 3 次 tools/list，间隔 1.2s：累计 3.6s > 2s 空闲窗口，但每次调用都有活动
+    for _ in 0..3 {
+        client.call("tools/list", json!({})).await;
+        tokio::time::sleep(Duration::from_millis(1200)).await;
+    }
+    assert!(
+        client.child.try_wait().unwrap().is_none(),
+        "有请求活动时 server 不应空闲退出"
+    );
     client.kill().await;
 }

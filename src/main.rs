@@ -31,7 +31,7 @@ fn run_cli() -> ExitCode {
             Command::Doctor => doctor(),
             Command::List => list_engines(),
             #[cfg(feature = "mcp")]
-            Command::Mcp => mcp_main(),
+            Command::Mcp { idle_timeout } => mcp_main(idle_timeout),
         };
     }
 
@@ -135,7 +135,7 @@ fn list_engines() -> ExitCode {
 /// 与普通搜索不同：stdout 是 MCP JSON-RPC 通道，**不**走 `finish()` 输出契约包；
 /// 工具结果经 MCP `tools/call` 响应返回。错误仅写 stderr + exit 1。
 #[cfg(feature = "mcp")]
-fn mcp_main() -> ExitCode {
+fn mcp_main(idle_timeout: u64) -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -143,8 +143,15 @@ fn mcp_main() -> ExitCode {
             return ExitCode::from(1);
         }
     };
-    match runtime.block_on(worbrow::mcp::serve_stdio()) {
-        Ok(()) => ExitCode::SUCCESS,
+    // 0 = 禁用空闲超时（保持"等客户端断开"语义）
+    let idle = (idle_timeout > 0).then(|| std::time::Duration::from_secs(idle_timeout));
+    match runtime.block_on(worbrow::mcp::serve_stdio(idle)) {
+        Ok(()) => {
+            // 正常结束（空闲超时/客户端 EOF）。必须显式 exit：tokio::io::Stdin 的内部
+            // 阻塞读线程在管道无数据时永不退出，若走 main 正常返回会挂在 runtime drop
+            // 上导致进程残留（实测 timeout 后仍存活）。
+            std::process::exit(0);
+        }
         Err(e) => {
             eprintln!("MCP server 退出: {e}");
             ExitCode::from(1)
