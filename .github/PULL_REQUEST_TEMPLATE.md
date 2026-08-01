@@ -9,7 +9,7 @@
 ## 检查清单
 
 - [ ] `cargo fmt --check` 通过
-- [ ] `cargo clippy --all-targets --all-features -- -D warnings` 通过
+- [ ] `cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity` 通过
 - [ ] `cargo test` 通过
 - [ ] `cargo machete` 通过（`cargo deny check` 受本机网络影响时可跳过，CI 会跑）
 - [ ] 契约变更（JSON schema / 退出码）已 bump `schema_version` 并记 ADR（见 `docs/adr/`）

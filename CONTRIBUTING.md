@@ -27,7 +27,7 @@ pre-commit install --hook-type commit-msg   # Conventional Commits 校验
 ```bash
 pre-commit run --all-files   # 空白/YAML/TOML/密钥/冲突标记等（可选但推荐）
 cargo fmt --check
-cargo clippy --all-targets --all-features -- -D warnings
+cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity
 cargo test
 cargo deny check
 cargo machete
