@@ -92,6 +92,18 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 验证 | 集成测试：ddg 解析失败→降级 bing 成功（engine_tried 断言）、首引擎成功不降级、全失败返回稳定错误码、低产候选兜底 |
 | 风险 | 降级放大总耗时（全局 timeout 兜底）；同页面多引擎解析差异（fixture 按引擎分开） |
 
+### P1：结果质量信号与降级链增强（`result_kind` + 质量降级）
+
+| 项 | 内容 |
+|---|---|
+| 现状 | 降级判定只看数量（`results.len() >= LOW_YIELD_THRESHOLD`）；Bing 对含常见英文词查询（如 `best`/`learn`）返回"词典释义"结果时，10 条高产低质不触发降级（真实案例见专项文档） |
+| 目标 | 引擎自检结果质量：URL 特征标记 `result_kind`（web/dictionary/translation）；降级判定按"**内容型**结果数"≥ 阈值，低质自动尝试下一引擎，不依赖 agent 输入（对比 `site:` 需事先知道答案站点，不通用） |
+| 改动点 | ① [extract.rs](../src/extract.rs) 新增 `result_kind(url)` 类型识别（~10 个 URL 路径模式，跨引擎共享，识别失败回退 `web`）；② [domain.rs](../src/domain.rs) `SearchResult` 新增 `result_kind`；③ [app.rs](../src/app.rs) 降级判定改用内容型结果数（`satisfied` 条件升级） |
+| 契约影响 | 结果对象新增 `result_kind` 字段（schema v1 **只增不改**，允许）；`low_yield` 语义扩展（数量低 → 内容型结果不足），字段与错误码不变 |
+| 验证 | 特征库单测（真实污染 URL 样本：iciba/剑桥/eudic）+ 集成测试（全词典结果触发降级 engine_tried、首引擎正常不降级回归） |
+| 风险 | 特征误判（如 wordpress 路径含 word）→ 模式加边界 + 回退 `web` 兜底；误判代价仅"多试一个引擎" |
+| 参考 | 专项规划 [roadmap-result-quality.md](roadmap-result-quality.md)（真实案例、目标/非目标、开放决策） |
+
 ### P1：网络重试与结果缓存（`--retry` / TTL 缓存）
 
 | 项 | 内容 |
@@ -121,6 +133,7 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 ## 4. 实施顺序
 
 CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → 引擎降级 →
+结果质量信号（[roadmap-result-quality.md](roadmap-result-quality.md)）→
 搜索参数补全（[roadmap-search-params.md](roadmap-search-params.md)）→
 网络重试与缓存 → MCP 体验完善 →（P2 baidu 视评估）
 
