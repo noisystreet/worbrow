@@ -258,7 +258,25 @@ pub fn search(config: Config) -> Result<Outcome, Error> {
 /// let handle = tokio::runtime::Handle::current();
 /// let outcome = tokio::task::block_in_place(|| handle.block_on(run(config))).unwrap();
 /// ```
-pub async fn run(config: Config) -> Result<Outcome, Error> {
+pub async fn run(mut config: Config) -> Result<Outcome, Error> {
+    // 2. 选浏览器后端（测试可注入）；`run_with` 借用的 driver 随本函数返回 Drop 回收
+    //（design.md §8：成功/错误/超时路径均回收浏览器子进程，防残留）
+    let mut driver = match config.driver.take() {
+        Some(d) => d,
+        None => crate::drivers::resolve(config.browser).await?,
+    };
+    run_with(&mut *driver, config).await
+}
+
+/// 使用**外部注入**驱动的搜索编排（design.md §6.2 步骤 1-10）。
+///
+/// 与 [`run`] 共用同一编排；区别：driver 为借用（生命周期归调用方），供
+/// MCP 会话池复用浏览器进程（[`crate::drivers::SessionPool`]，roadmap-session-pool.md）。
+/// 调用方负责回收：失败/超时后按错误类型标记会话健康，Drop 时归还或丢弃。
+pub(crate) async fn run_with(
+    driver: &mut dyn BrowserDriver,
+    config: Config,
+) -> Result<Outcome, Error> {
     // 1. 解析并校验 query
     let text = config.query.trim();
     if text.is_empty() {
@@ -275,12 +293,6 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
     let started_at = Utc::now();
     let timer = Instant::now();
 
-    // 2. 选浏览器后端（测试可注入）
-    let mut driver = match config.driver {
-        Some(d) => d,
-        None => crate::drivers::resolve(config.browser).await?,
-    };
-
     let query = SearchQuery {
         text: text.to_string(),
         max_results: config.max_results.max(1),
@@ -295,36 +307,34 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
 
     // 4-8. 包整体硬超时：注入引擎单引擎（无降级）；否则内置注册表降级循环
     // （验证码阻止/解析失败/低产 → 尝试下一引擎，见 roadmap「引擎可配且可降级」）
-    let (engine, html, results, captcha, fetched_pages, low_yield, engine_tried, mut driver) =
-        match config.provider {
-            Some(provider) => {
-                let name = provider.name();
-                // driver 移入闭包：超时/失败时闭包 drop → driver drop → 杀浏览器进程
-                //（design.md §8：超时/取消/失败均回收子进程，防残留）
-                let outcome = timeout(config.timeout, async {
-                    let (html, results, captcha, pages) =
-                        search_one(&*provider, &query, &mut *driver, config.timeout).await?;
-                    let low_yield = results.len() < LOW_YIELD_THRESHOLD;
-                    Ok::<_, Error>((
-                        name,
-                        html,
-                        results,
-                        captcha,
-                        pages,
-                        low_yield,
-                        vec![name.to_string()],
-                        driver,
-                    ))
-                })
-                .await;
-                match outcome {
-                    Ok(Ok(v)) => v,
-                    Ok(Err(e)) => return Err(e),
-                    Err(_) => return Err(Error::Timeout("任务超时".into())),
-                }
+    let (engine, html, results, captcha, fetched_pages, low_yield, engine_tried) = match config
+        .provider
+    {
+        Some(provider) => {
+            let name = provider.name();
+            let outcome = timeout(config.timeout, async {
+                let (html, results, captcha, pages) =
+                    search_one(&*provider, &query, driver, config.timeout).await?;
+                let low_yield = results.len() < LOW_YIELD_THRESHOLD;
+                Ok::<_, Error>((
+                    name,
+                    html,
+                    results,
+                    captcha,
+                    pages,
+                    low_yield,
+                    vec![name.to_string()],
+                ))
+            })
+            .await;
+            match outcome {
+                Ok(Ok(v)) => v,
+                Ok(Err(e)) => return Err(e),
+                Err(_) => return Err(Error::Timeout("任务超时".into())),
             }
-            None => {
-                let outcome = timeout(config.timeout, async {
+        }
+        None => {
+            let outcome = timeout(config.timeout, async {
                     let mut tried: Vec<String> = Vec::new();
                     // 低产候选兜底（取最高产）；引擎名恒为 `&'static str`（trait 签名）
                     let mut candidate: Option<(&'static str, Vec<SearchResult>, bool, usize, String)> =
@@ -336,7 +346,7 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
                         tried.push(provider.name().to_string());
                         tracing::info!(engine = provider.name(), "尝试引擎");
 
-                        match search_one(&*provider, &query, &mut *driver, config.timeout).await {
+                        match search_one(&*provider, &query, driver, config.timeout).await {
                             Ok((html, results, captcha, pages)) => {
                                 // 满意：集满请求量或非低产（≥ 阈值）；否则保留候选继续降级
                                 let satisfied = results.len() >= query.max_results
@@ -356,7 +366,6 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
                                         pages,
                                         low_yield,
                                         tried,
-                                        driver,
                                     ));
                                 }
                                 // 低产：保留最高产候选，继续尝试下一引擎
@@ -385,7 +394,7 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
 
                     // 全部尝试完：有低产候选则兜底成功；否则返回最后错误（captcha 优先）
                     if let Some((engine, results, captcha, pages, html)) = candidate {
-                        return Ok((engine, html, results, captcha, pages, true, tried, driver));
+                        return Ok((engine, html, results, captcha, pages, true, tried));
                     }
                     match last_error {
                         Some(err) => Err(err),
@@ -393,13 +402,13 @@ pub async fn run(config: Config) -> Result<Outcome, Error> {
                     }
                 })
                 .await;
-                match outcome {
-                    Ok(Ok(v)) => v,
-                    Ok(Err(e)) => return Err(e),
-                    Err(_) => return Err(Error::Timeout("任务超时".into())),
-                }
+            match outcome {
+                Ok(Ok(v)) => v,
+                Ok(Err(e)) => return Err(e),
+                Err(_) => return Err(Error::Timeout("任务超时".into())),
             }
-        };
+        }
+    };
 
     // 9. 可选调试产物（失败仅告警，不影响主流程）
     if let Some(path) = config.screenshot.as_deref()
@@ -590,5 +599,78 @@ mod tests {
             "duckduckgo",
         ]);
         assert_eq!(c.engines, vec!["bing", "duckduckgo"]);
+    }
+
+    /// `run_with`（外部注入驱动）与 `run`（自建驱动）编排等价：同 config 同 fixture
+    /// 结果一致（roadmap-session-pool.md §5 app 集成验证）。
+    #[tokio::test]
+    async fn run_with_matches_run_on_same_fixture() {
+        // run：内部 resolve FakeDriver（SMOKE_HTML）
+        let cfg_run = Config::new("rust async", "bing", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(5));
+        let via_run = run(cfg_run).await.expect("run 应成功");
+
+        // run_with：注入同 fixture 的 FakeDriver（drivers::resolve(Fake) = SMOKE_HTML）
+        let mut driver = crate::drivers::resolve(BrowserKind::Fake)
+            .await
+            .expect("resolve Fake 应成功");
+        let cfg_run_with = Config::new("rust async", "bing", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(5));
+        let via_run_with = run_with(&mut *driver, cfg_run_with)
+            .await
+            .expect("run_with 应成功");
+
+        assert_eq!(via_run.query, via_run_with.query);
+        assert_eq!(via_run.results, via_run_with.results);
+        assert_eq!(via_run.meta.engine, via_run_with.meta.engine);
+        assert_eq!(via_run.meta.result_count, via_run_with.meta.result_count);
+    }
+
+    /// `run_with` 错误路径不泄漏驱动状态：网络错误返回后驱动仍可再用于下一次搜索
+    /// （会话池健康判定的前提——错误只标记会话，不破坏驱动对象）。
+    #[tokio::test]
+    async fn run_with_network_error_leaves_driver_usable() {
+        /// 首次 navigate 返回网络错误、之后正常的驱动（模拟浏览器连接抖动）。
+        struct FlakyDriver {
+            fail_first: bool,
+        }
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for FlakyDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                if self.fail_first {
+                    self.fail_first = false;
+                    return Err(Error::Network("模拟连接断开".into()));
+                }
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(include_str!("../tests/fixtures/bing.html").to_string())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = FlakyDriver { fail_first: true };
+        // 第一次：navigate 网络错误 → 引擎降级循环直接返回（不吞错误）
+        let cfg = Config::new("q", "bing", BrowserKind::Fake).with_timeout(Duration::from_secs(5));
+        let err = run_with(&mut driver, cfg)
+            .await
+            .expect_err("navigate 错误应返回");
+        assert!(matches!(err, Error::Network(_)));
+        // 第二次正常搜索仍可用（驱动对象未被 run_with 消耗/破坏）
+        let cfg2 = Config::new("rust", "bing", BrowserKind::Fake)
+            .with_max_results(3)
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut driver, cfg2).await.expect("复用驱动应成功");
+        assert!(!outcome.results.is_empty());
     }
 }

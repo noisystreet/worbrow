@@ -35,7 +35,11 @@ fn run_cli() -> ExitCode {
             Command::Doctor => doctor(),
             Command::List => list_engines(),
             #[cfg(feature = "mcp")]
-            Command::Mcp { idle_timeout } => mcp_main(idle_timeout),
+            Command::Mcp {
+                idle_timeout,
+                max_sessions,
+                session_ttl,
+            } => mcp_main(idle_timeout, max_sessions, session_ttl),
         };
     }
 
@@ -141,7 +145,7 @@ fn list_engines() -> ExitCode {
 /// 与普通搜索不同：stdout 是 MCP JSON-RPC 通道，**不**走 `finish()` 输出契约包；
 /// 工具结果经 MCP `tools/call` 响应返回。错误仅写 stderr + exit 1。
 #[cfg(feature = "mcp")]
-fn mcp_main(idle_timeout: u64) -> ExitCode {
+fn mcp_main(idle_timeout: u64, max_sessions: usize, session_ttl: u64) -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -151,7 +155,12 @@ fn mcp_main(idle_timeout: u64) -> ExitCode {
     };
     // 0 = 禁用空闲超时（保持"等客户端断开"语义）
     let idle = (idle_timeout > 0).then(|| std::time::Duration::from_secs(idle_timeout));
-    match runtime.block_on(worbrow::mcp::serve_stdio(idle)) {
+    // 会话池：并发上限 ≥1（防呆），TTL 秒数 → Duration
+    let pool = Some(worbrow::mcp::PoolConfig {
+        max_sessions: max_sessions.max(1),
+        idle_ttl: std::time::Duration::from_secs(session_ttl),
+    });
+    match runtime.block_on(worbrow::mcp::serve_stdio(idle, pool)) {
         Ok(()) => {
             // 正常结束（空闲超时/客户端 EOF）。必须显式 exit：tokio::io::Stdin 的内部
             // 阻塞读线程在管道无数据时永不退出，若走 main 正常返回会挂在 runtime drop
