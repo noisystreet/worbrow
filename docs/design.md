@@ -78,6 +78,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-003](adr/0003-search-url-direct.md) | 搜索方式 = URL 直访优先，交互原语备用 | 已接受 |
 | [ADR-004](adr/0004-output-contract-json.md) | 输出契约 = JSON schema v1 + 语义化退出码 | 已接受 |
 | [ADR-005](adr/0005-mcp-stdio-server.md) | MCP stdio server 支持（`worbrow mcp`，rmcp 2.2） | 已接受 |
+| [ADR-006](adr/0006-lib-api-surface.md) | 库 API 公开面 = 类型级顶层 re-export（外部消费者） | 提案 |
 
 ---
 
