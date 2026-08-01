@@ -13,6 +13,9 @@
 - **agent 契约增强（P1）**：`SearchResult` 新增 `domain`（URL host）与 `https`
   （scheme 判定），agent 免解析 URL 即可判断来源可信度（schema v1 只增不改）；
   README 新增「Agent 集成」章节（Claude Code / Cursor MCP 配置 + CLI 子进程要点）
+- **Bing ck/a 跳转链展开**：`www.bing.com/ck/a` 点击追踪链的 `u` 参数（base64url
+  编码）解码为真实目标 URL；解码失败（无 `u`/非法 base64/非 http(s)）保持原样，
+  模型侧拿到干净 URL 无需跟跳转
 
 ## [0.1.0] - 2026-08-01
 
