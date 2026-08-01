@@ -15,7 +15,7 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 - `app::run_sync`（同步入口，内部管 runtime）/ `app::run`（async，复用外部 runtime）
 - `app::DoctorReport::collect()` 环境自检
 - `output::success/failure` 契约序列化、`error::Error`（含 `exit_code`/`code_str`/`detail`）
-- `domain::DEFAULT_*` 常量、`drivers::BrowserKind::from_arg`
+- `domain::DEFAULT_*` 常量、`BrowserKind::from_arg`
 
 ### 现状障碍（详见 [ADR-006](adr/0006-lib-api-surface.md)）
 
@@ -63,11 +63,12 @@ worbrow 目前是"CLI 为主、库为辅"的形态：`lib.rs` 公开 `app`/`cli`
 
 | 项 | 内容 |
 |---|---|
-| 顶层 re-export | `worbrow::{Config, BrowserKind, Outcome, DoctorReport, Error, search, run, run_sync, DEFAULT_*, SearchQuery, SearchResult, SearchMeta, EngineError}` |
-| `pub(crate)` 化实现细节 | `cli`（参数结构保留给 bin，`pub(crate)`）、`drivers::{cdp, marionette, jsonrpc, discovery, fake}`、`engines::{bing, duckduckgo}`；保留 `drivers::resolve/BrowserKind`、`engines::resolve/AVAILABLE` 为内部服务公开面 |
-| `BrowserKind` 归位 | 从 `drivers` 上移为顶层配置类型（内部实现仍留在 `drivers`） |
-| 引擎扩展点 | `Config::with_provider(Box<dyn SearchProvider>)`（对齐 `with_driver` 风格），`app::run` 优先使用注入的 provider |
-| `Error` source chain | `EngineFailure` 等内嵌错误补 `#[source]`，外部 `anyhow`/自定义错误可下钻 |
+| 顶层 re-export | `worbrow::{Config, BrowserKind, Outcome, DoctorReport, Error, run, run_sync, DEFAULT_*, SearchQuery, SearchResult, SearchMeta, EngineError}` |
+| `cli` 摘出到 bin | `main.rs` 声明 `mod cli;`（bin 侧私有），lib 删除 `pub mod cli`——bin 是独立 crate，`pub(crate)` 对 bin 不可见（实施中验证）；clap 依赖留 bin |
+| 适配器内部化 | `drivers::{cdp, marionette, jsonrpc, discovery, fake}`、`engines::{bing, duckduckgo}` 内部化；真机冒烟测试改经 `drivers::resolve`（trait 面断言）；保留 `drivers::resolve`、`engines::resolve/AVAILABLE` 为内部服务公开面 |
+| `BrowserKind` 归位 | 从 `drivers` 上移为 `domain` 纯配置枚举（零依赖），顶层 re-export |
+| 引擎扩展点 | `Config::with_provider(Box<dyn SearchProvider>)`（对齐 `with_driver` 风格），`app::run` 注入优先、注册表兜底 |
+| `Error` source chain | 复核确认（thiserror `#[from]` 已自动 source）；rustdoc 说明 |
 
 ### P2：库消费体验完善
 
@@ -120,9 +121,8 @@ P0 补漏 → P1 收敛 + re-export + 引擎扩展点 → P2 体验完善
 
 ## 7. 开放决策
 
-1. `BrowserKind` 上移后 `drivers::BrowserKind` 保留 pub 别名还是彻底迁移 → 倾向彻底迁移
-   （单一概念单一位置），迁移期 `tests/` 同步
+1. ~~`BrowserKind` 上移后 `drivers::BrowserKind` 保留 pub 别名还是彻底迁移~~ → ✅ P1 已实施：彻底迁移，顶层 re-export
 2. `engines::resolve` 是否同时保留（内置引擎走注册表）与 `with_provider` 并存 →
-   倾向并存：内置走注册表，外部走注入，二者在 `run` 内合并解析
+   倾向并存：内置走注册表，外部走注入，二者在 `run` 内合并解析（P1 已实施并存）
 3. `cli` 模块 `pub(crate)` 后，`clap` 依赖是否 feature 化（`cli = ["dep:clap"]`）→
-   倾向 P2 做，P1 仅收敛可见性
+   倾向 P2 做，P1 仅收敛可见性（P1 已实施：cli 摘出 bin，clap 留 bin）

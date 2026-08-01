@@ -82,9 +82,11 @@ make doctor     # 运行 worbrow doctor
 
 ```
 src/
-  cli.rs app.rs domain.rs error.rs ports.rs output.rs extract.rs
-  drivers/   # jsonrpc(共用框架) · cdp(桩) · marionette(桩) · fake(测试)
-  engines/   # duckduckgo · bing
+  main.rs    # 薄入口 + CLI 参数解析（clap，bin 私有）
+  lib.rs     # 库公开面：顶层 re-export（Config/BrowserKind/...，ADR-006）
+  app.rs domain.rs error.rs ports.rs output.rs extract.rs
+  drivers/   # resolve · jsonrpc(共用框架) · cdp · marionette · fake
+  engines/   # resolve/AVAILABLE · duckduckgo · bing
 tests/       # 集成测试 + fixtures（离线 HTML golden）
 ```
 
