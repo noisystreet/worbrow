@@ -96,6 +96,15 @@ async fn unknown_engine_is_cli_error() {
 }
 
 #[tokio::test]
+async fn empty_engine_is_cli_error() {
+    // 空引擎串 → 参数错误（exit 2），而非内部错误
+    let cfg = config_with("rust", "");
+    let err = app::run(cfg).await.unwrap_err();
+    assert!(matches!(err, Error::Cli(_)));
+    assert_eq!(err.exit_code(), 2);
+}
+
+#[tokio::test]
 async fn captcha_html_yields_captcha_flag() {
     // 验证码特征词存在但仍有结果：标记 captcha=true，不中止
     let html = format!("<html>anomaly<body>{FIXTURE}</body></html>");
@@ -238,4 +247,89 @@ async fn pages_stop_early_when_max_results_reached() {
     let outcome = app::run(cfg).await.expect("提前停止应成功");
     assert_eq!(outcome.results.len(), 2);
     assert_eq!(outcome.meta.pages, 1, "集满 max_results 后应停止翻页");
+}
+
+// ---- 引擎降级链（roadmap「引擎可配且可降级」）----
+
+fn low_yield_bing_html() -> String {
+    r#"<html><body><ol id="b_results">
+        <li class="b_algo"><h2><a href="https://example.com/a">A</a></h2><div class="b_caption"><p>a</p></div></li>
+        <li class="b_algo"><h2><a href="https://example.com/b">B</a></h2><div class="b_caption"><p>b</p></div></li>
+        </ol></body></html>"#
+        .to_string()
+}
+
+fn ddg_one_result_html() -> String {
+    r#"<html><body>
+        <div class="result"><a class="result__a" href="https://example.com/only">Only</a><a class="result__snippet">only snippet</a></div>
+        </body></html>"#
+        .to_string()
+}
+
+#[tokio::test]
+async fn engine_falls_back_on_parse_failure() {
+    // 首引擎 bing 解析 DDG 结构失败（no_results）→ 自动降级 duckduckgo 成功
+    let cfg = Config::new("rust", "bing,duckduckgo", BrowserKind::Fake)
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(5))
+        .with_driver(Box::new(FixtureDriver::new(FIXTURE)));
+    let outcome = app::run(cfg).await.expect("降级应成功");
+    assert_eq!(outcome.meta.engine, "duckduckgo");
+    assert_eq!(outcome.meta.engine_tried, vec!["bing", "duckduckgo"]);
+    assert_eq!(outcome.results.len(), 3);
+    assert!(!outcome.meta.low_yield);
+}
+
+#[tokio::test]
+async fn first_engine_success_skips_fallback() {
+    let cfg = Config::new("rust", "duckduckgo,bing", BrowserKind::Fake)
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(5))
+        .with_driver(Box::new(FixtureDriver::new(FIXTURE)));
+    let outcome = app::run(cfg).await.expect("应成功");
+    assert_eq!(outcome.meta.engine, "duckduckgo");
+    assert_eq!(outcome.meta.engine_tried, vec!["duckduckgo"]);
+}
+
+#[tokio::test]
+async fn all_engines_fail_returns_stable_error_code() {
+    // 全部引擎解析失败 → 稳定错误码 parse（exit 4），agent 可据此重试/换引擎
+    let cfg = Config::new("rust", "bing,duckduckgo", BrowserKind::Fake)
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(5))
+        .with_driver(Box::new(FixtureDriver::new("<html><body>空</body></html>")));
+    let err = app::run(cfg).await.unwrap_err();
+    assert_eq!(err.code_str(), "parse");
+    assert_eq!(err.exit_code(), 4);
+}
+
+#[tokio::test]
+async fn low_yield_engine_uses_best_candidate() {
+    // bing 低产（2 条）→ 保留候选 → ddg 解析同页失败 → 候选兜底成功
+    let cfg = Config::new("rust", "bing,duckduckgo", BrowserKind::Fake)
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(5))
+        .with_driver(Box::new(FixtureDriver::new(low_yield_bing_html())));
+    let outcome = app::run(cfg).await.expect("低产候选应兜底成功");
+    assert_eq!(outcome.meta.engine, "bing");
+    assert_eq!(outcome.meta.engine_tried, vec!["bing", "duckduckgo"]);
+    assert_eq!(outcome.results.len(), 2);
+    assert!(outcome.meta.low_yield);
+}
+
+#[tokio::test]
+async fn multiple_low_yield_engines_picks_highest_yield() {
+    // bing 2 条 + ddg 1 条（都低产，PageDriver 按 navigate 顺序分页）→ 选最高产候选
+    let cfg = Config::new("rust", "bing,duckduckgo", BrowserKind::Fake)
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(5))
+        .with_driver(Box::new(PageDriver::new(vec![
+            low_yield_bing_html(),
+            ddg_one_result_html(),
+        ])));
+    let outcome = app::run(cfg).await.expect("多低产应选最高产");
+    assert_eq!(outcome.meta.engine, "bing");
+    assert_eq!(outcome.meta.engine_tried, vec!["bing", "duckduckgo"]);
+    assert_eq!(outcome.results.len(), 2);
+    assert!(outcome.meta.low_yield);
 }

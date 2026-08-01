@@ -50,7 +50,7 @@ fn run_cli() -> ExitCode {
         );
     };
 
-    let config = Config::new(query, cli.engine.name(), cli.browser.to_kind())
+    let config = Config::new(query, cli.engine, cli.browser.to_kind())
         .with_max_results(cli.max_results)
         .with_timeout(std::time::Duration::from_secs(cli.timeout))
         .with_screenshot(cli.screenshot)

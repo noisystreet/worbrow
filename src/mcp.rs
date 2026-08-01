@@ -34,9 +34,9 @@ pub struct SearchParams {
     /// 搜索关键词（必填，1-512 字符）
     #[schemars(description = "要搜索的关键词（1-512 字符）")]
     pub query: String,
-    /// 搜索引擎
+    /// 搜索引擎（逗号分隔 = 降级尝试顺序，如 "bing,duckduckgo"）
     #[schemars(
-        description = "搜索引擎（当前支持: duckduckgo/bing）",
+        description = "搜索引擎（当前支持: duckduckgo/bing；逗号分隔为降级尝试顺序，如 bing,duckduckgo）",
         default = "default_engine"
     )]
     #[serde(default = "default_engine")]

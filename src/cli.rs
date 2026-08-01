@@ -19,11 +19,11 @@ pub struct Cli {
     #[arg(value_name = "QUERY")]
     pub query: Option<String>,
 
-    /// 搜索引擎
-    // 默认引擎与 `domain::DEFAULT_ENGINE` 保持一致（clap 需 ValueEnum 变体，无法直接引用常量）；
+    /// 搜索引擎：逗号分隔 = 降级尝试顺序（可用: duckduckgo, bing）
+    // 默认引擎与 `domain::DEFAULT_ENGINE` 保持一致（clap default_value 需字面量）；
     // 变更默认引擎时两处必须同步
-    #[arg(long, value_enum, default_value_t = EngineArg::Bing)]
-    pub engine: EngineArg,
+    #[arg(long, default_value = "bing")]
+    pub engine: String,
 
     /// 浏览器后端
     #[arg(long, value_enum, default_value_t = BrowserArg::Firefox)]
@@ -82,26 +82,6 @@ pub enum Command {
         #[arg(long, default_value_t = 0)]
         idle_timeout: u64,
     },
-}
-
-/// 搜索引擎（clap value_enum）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
-pub enum EngineArg {
-    /// DuckDuckGo（html 端点）
-    #[value(name = "duckduckgo")]
-    DuckDuckGo,
-    /// Bing（www.bing.com/search）
-    #[value(name = "bing")]
-    Bing,
-}
-
-impl EngineArg {
-    pub fn name(self) -> &'static str {
-        match self {
-            EngineArg::DuckDuckGo => "duckduckgo",
-            EngineArg::Bing => "bing",
-        }
-    }
 }
 
 /// 浏览器后端（clap value_enum）。
