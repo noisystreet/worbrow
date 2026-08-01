@@ -3,6 +3,47 @@
 use base64::Engine as _;
 use url::Url;
 
+use crate::domain::ResultKind;
+
+/// 结果类型特征库：URL 路径/主机模式 → `ResultKind`（roadmap-result-quality.md）。
+///
+/// 词典/翻译污染（如 Bing 对 `best`/`learn` 查询返回的释义页）识别失败一律回退
+/// `Web`（尽力语义，不因误判丢结果）。路径段**精确匹配**（非子串），避免
+/// wordpress 类正常站点误判；主机模式用**前缀**（`fanyi.`/`translate.`），避免
+/// 普通域名中偶含特征词（如 notfanyiso.example.com）被误判。
+pub fn result_kind(raw: &str) -> ResultKind {
+    let Ok(url) = Url::parse(raw) else {
+        return ResultKind::Web;
+    };
+    let host = url.host_str().unwrap_or_default();
+    // 路径段（去空段），供精确匹配
+    let segments: Vec<&str> = url
+        .path_segments()
+        .map(|s| s.filter(|seg| !seg.is_empty()).collect())
+        .unwrap_or_default();
+
+    // 翻译站：host 前缀 fanyi.（fanyi.baidu.com / fanyi.so）或 translate.
+    //（translate.google.com / translate.yandex.com），或路径段为 translate*/fanyi
+    if host.starts_with("fanyi.")
+        || host.starts_with("translate.")
+        || segments
+            .iter()
+            .any(|seg| matches!(*seg, "translate" | "translation" | "fanyi"))
+    {
+        return ResultKind::Translation;
+    }
+    // 词典站：host 以 dictionary. 开头（dictionary.cambridge.org），或路径段为
+    // dict*/word/danci（iciba `word`、eudic `dicts` 等）
+    if host.starts_with("dictionary.")
+        || segments
+            .iter()
+            .any(|seg| matches!(*seg, "dict" | "dicts" | "dictionary" | "word" | "danci"))
+    {
+        return ResultKind::Dictionary;
+    }
+    ResultKind::Web
+}
+
 /// 清洗标题/摘要：剥离控制字符、折叠多余空白（HTML 实体已由 scraper 解码）。
 pub fn clean_text(s: &str) -> String {
     s.chars()
@@ -259,5 +300,72 @@ mod tests {
         );
         // 非法 URL：空域名 + 非 https
         assert_eq!(url_origin("not a url"), (String::new(), false));
+    }
+
+    /// 特征库识别：真实词典/翻译污染样本（roadmap-result-quality.md 案例）→ 非 Web。
+    #[test]
+    fn result_kind_marks_pollution_urls() {
+        // 词典：iciba `word?w=`（真实污染样本）
+        assert_eq!(
+            result_kind("https://www.iciba.com/word?w=best"),
+            ResultKind::Dictionary
+        );
+        // 词典：剑桥（host 前缀 dictionary.）
+        assert_eq!(
+            result_kind("https://dictionary.cambridge.org/dictionary/english/best"),
+            ResultKind::Dictionary
+        );
+        // 词典：eudic `dicts/en/`
+        assert_eq!(
+            result_kind("https://dict.eudic.net/dicts/en/best"),
+            ResultKind::Dictionary
+        );
+        // 词典：iciba 爱词霸（路径段 word，带非空尾段也精确匹配）
+        assert_eq!(
+            result_kind("https://www.iciba.com/word?w=learn"),
+            ResultKind::Dictionary
+        );
+        // 翻译：fanyi.baidu.com / fanyi.so（host 前缀 fanyi.）
+        assert_eq!(
+            result_kind("https://fanyi.baidu.com/#en/zh/best"),
+            ResultKind::Translation
+        );
+        assert_eq!(
+            result_kind("https://fanyi.so/dict/?q=best"),
+            ResultKind::Translation
+        );
+        // 翻译：路径段 translate（英文翻译站）
+        assert_eq!(
+            result_kind("https://translate.yandex.com/"),
+            ResultKind::Translation
+        );
+    }
+
+    /// 回退语义与防误判：正常内容页/特征子串站 → Web。
+    #[test]
+    fn result_kind_falls_back_to_web() {
+        // 正常内容页
+        assert_eq!(result_kind("https://example.com/rust"), ResultKind::Web);
+        // 非法 URL → Web
+        assert_eq!(result_kind("not a url"), ResultKind::Web);
+        // 防误判：路径段含 word 子串但非精确匹配（wordpress）
+        assert_eq!(
+            result_kind("https://wordpress.org/plugins/best"),
+            ResultKind::Web
+        );
+        assert_eq!(
+            result_kind("https://example.com/words/best"),
+            ResultKind::Web
+        );
+        // 防误判：普通域名含 dictionary 字样但非词典站
+        assert_eq!(
+            result_kind("https://dictionary-not-dict.example.com/rust"),
+            ResultKind::Web
+        );
+        // 防误判：host 含 fanyi 子串但属正常站（路径也非翻译）
+        assert_eq!(
+            result_kind("https://notfanyiso.example.com/rust"),
+            ResultKind::Web
+        );
     }
 }

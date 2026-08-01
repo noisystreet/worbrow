@@ -33,6 +33,7 @@ impl SearchProvider for StaticEngine {
             published_at: None,
             is_ad: false,
             url_resolved: false,
+            result_kind: worbrow::ResultKind::Web,
         }])
     }
 

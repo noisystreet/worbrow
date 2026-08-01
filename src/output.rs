@@ -189,6 +189,7 @@ mod tests {
             published_at: None,
             is_ad: false,
             url_resolved: false,
+            result_kind: crate::domain::ResultKind::Web,
         }];
         let text = success_text("q", &results, &meta);
         assert!(text.contains("query: q"));
@@ -233,6 +234,7 @@ mod tests {
             published_at: Some("2026-08-01".into()),
             is_ad: false,
             url_resolved: true,
+            result_kind: crate::domain::ResultKind::Web,
         }];
         let json = success_compact("q", &results, &meta);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
