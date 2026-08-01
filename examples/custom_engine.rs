@@ -28,6 +28,8 @@ impl SearchProvider for StaticEngine {
             title: "静态结果".into(),
             url: "https://example.com/".into(),
             snippet: "示例摘要".into(),
+            domain: "example.com".into(),
+            https: true,
         }])
     }
 

@@ -35,6 +35,18 @@ pub fn normalize_url(raw: &str) -> String {
     url.to_string()
 }
 
+/// 提取 URL 的来源域名与 https 标志（供 `SearchResult.domain/https` 填充；
+/// 非法 URL 返回空域名 + 非 https）。
+pub fn url_origin(raw: &str) -> (String, bool) {
+    match Url::parse(raw) {
+        Ok(url) => (
+            url.host_str().unwrap_or_default().to_string(),
+            url.scheme() == "https",
+        ),
+        Err(_) => (String::new(), false),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -56,5 +68,19 @@ mod tests {
     #[test]
     fn cleans_control_chars_and_whitespace() {
         assert_eq!(clean_text("  a\t\n  b  "), "a b");
+    }
+
+    #[test]
+    fn url_origin_extracts_host_and_scheme() {
+        assert_eq!(
+            url_origin("https://example.com/rust"),
+            ("example.com".to_string(), true)
+        );
+        assert_eq!(
+            url_origin("http://example.com/a"),
+            ("example.com".to_string(), false)
+        );
+        // 非法 URL：空域名 + 非 https
+        assert_eq!(url_origin("not a url"), (String::new(), false));
     }
 }

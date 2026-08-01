@@ -65,11 +65,15 @@ impl SearchProvider for DuckDuckGo {
                 .map(|e| clean_text(&e.text().collect::<String>()))
                 .unwrap_or_default();
 
+            let url = normalize_url(&raw_href);
+            let (domain, https) = crate::extract::url_origin(&url);
             results.push(SearchResult {
                 rank: i + 1,
                 title: title_text,
-                url: normalize_url(&raw_href),
+                url,
                 snippet: snippet_text,
+                domain,
+                https,
             });
         }
 
@@ -134,6 +138,8 @@ mod tests {
         assert_eq!(results[0].rank, 1);
         assert_eq!(results[0].title, "Rust 程序设计语言（示例标题一）");
         assert_eq!(results[0].url, "https://example.com/rust");
+        assert_eq!(results[0].domain, "example.com");
+        assert!(results[0].https);
         assert_eq!(results[0].snippet, "这是摘要一");
         // uddg 跳转展开
         assert_eq!(results[2].url, "https://example.org/async");

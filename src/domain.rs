@@ -34,6 +34,10 @@ pub struct SearchResult {
     pub title: String,
     pub url: String,
     pub snippet: String,
+    /// 来源域名（URL host，构造时从 url 提取；供 agent 免解析判断可信度）。
+    pub domain: String,
+    /// 链接是否为 HTTPS（scheme 判定）。
+    pub https: bool,
 }
 
 /// 引擎侧可上报的结构化异常：不为空即结果不可信（design.md §7.1）。

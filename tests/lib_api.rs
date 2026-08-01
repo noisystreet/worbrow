@@ -39,6 +39,8 @@ impl SearchProvider for DummyEngine {
             title: "dummy title".into(),
             url: "https://example.com/".into(),
             snippet: "dummy snippet".into(),
+            domain: "example.com".into(),
+            https: true,
         }])
     }
     fn captcha_heuristics(&self) -> &[&'static str] {

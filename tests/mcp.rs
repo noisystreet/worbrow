@@ -204,6 +204,9 @@ async fn tools_call_runs_web_search_via_fake_driver() {
     assert_eq!(payload["meta"]["engine"], "bing"); // 默认引擎 = bing
     // fake 后端返回模拟结果页（SMOKE_HTML = bing 结构，3 条 ≥ 低产量阈值）
     assert_eq!(payload["results"].as_array().map(Vec::len), Some(3));
+    // 结果条目携带 domain/https（agent 免解析判断来源）
+    assert_eq!(payload["results"][0]["domain"], "www.runoob.com");
+    assert_eq!(payload["results"][0]["https"], true);
     assert_eq!(payload["meta"]["low_yield"], false);
     client.kill().await;
 }
