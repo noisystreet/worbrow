@@ -14,8 +14,8 @@ pub mod app;
 pub mod cli;
 pub(crate) mod domain;
 pub use domain::{
-    DEFAULT_BROWSER, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS, SearchMeta,
-    SearchQuery, SearchResult,
+    DEFAULT_BROWSER, DEFAULT_ENGINE, DEFAULT_MAX_RESULTS, DEFAULT_TIMEOUT_SECS, EngineError,
+    SearchMeta, SearchQuery, SearchResult,
 };
 pub mod drivers;
 pub mod engines;

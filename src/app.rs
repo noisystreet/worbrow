@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use tokio::time::timeout;
 
+use crate::SearchResult;
 use crate::domain::{SearchMeta, SearchQuery};
 use crate::drivers::BrowserKind;
 use crate::engines;
@@ -78,7 +79,7 @@ impl Config {
 #[derive(Debug)]
 pub struct Outcome {
     pub query: String,
-    pub results: Vec<crate::domain::SearchResult>,
+    pub results: Vec<SearchResult>,
     pub meta: SearchMeta,
 }
 
