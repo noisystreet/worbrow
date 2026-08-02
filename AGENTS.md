@@ -1,33 +1,38 @@
 # AGENTS.md
 
-面向在该仓库工作的 Agent（人也可读）的硬约束与验证入口。
+Hard constraints and verification entry points for agents (and humans) working in this repository.
 
-## 项目身份
+## Project identity
 
-- Rust（edition 2024，MSRV 1.97）CLI 工具，二进制名 `worbrow`，库名 `worbrow`
-- 为 AI agent 提供"搜索引擎搜索"能力：驱动本机 headless 浏览器，输出稳定 JSON 契约
-- 架构权威来源：`docs/design.md`（§5 分层、§6 模块、§7 契约、ADR 章节）
+- Rust (edition 2024, MSRV 1.97) CLI tool, binary name `worbrow`, library name `worbrow`
+- Provides "web search" capability for AI agents: drives local headless browsers, outputs a stable JSON contract
+- Architecture authority: `docs/design.md` (§5 layering, §6 modules, §7 contract, ADR section)
 
-## 硬约束（违反即回退）
+## Hard constraints (revert on violation)
 
-1. **依赖方向**：`cli → app → domain/ports ← adapters(drivers/engines)`。`domain` 零框架依赖；
-   `app` 只面向 `ports` 的 trait 编程；禁止反向/循环依赖。
-2. **浏览器协议自研**：CDP（Chrome/Edge）与 Marionette（Firefox）必须手写实现，**禁止引入
-   chromiumoxide / fantoccini / playwright**。协议命令集中在各自驱动文件 + `drivers/jsonrpc.rs`
-   共用 JSON-RPC 框架。唯一例外：V2 深度控制时按 `docs/design.md` 重新评估。
-3. **输出契约**：stdout 仅 JSON（成功包/失败包），`schema_version` 字段**只增不改**；
-   日志一律 stderr。破坏契约需 bump schema 主版本并记 ADR。
-4. **引擎适配器**：新增引擎 = 新文件 + `engines/mod.rs` 注册一行；解析失败走
-   `EngineFailure`（`engine_error`/exit 4），禁止改 schema 兜底。
-5. **退出码语义冻结**（0/2/3/4/124/1），见 `src/error.rs::exit_code`。
-6. 安全红线：不写密钥、不绕过权限、不自动访问搜索结果中的第三方 URL（只输出）。
+1. **Dependency direction**: `cli → app → domain/ports ← adapters(drivers/engines)`. `domain` has zero framework
+   dependencies; `app` programs only against the `ports` traits; reverse/cyclic dependencies are forbidden.
+2. **Hand-written browser protocols**: CDP (Chrome/Edge) and Marionette (Firefox) must be implemented by hand;
+   **introducing chromiumoxide / fantoccini / playwright is forbidden**. Protocol commands live in their own driver
+   files plus the shared JSON-RPC framework in `drivers/jsonrpc.rs`. The only exception: revisit per `docs/design.md`
+   when V2 deep control is needed.
+3. **Output contract**: stdout only carries JSON (success/failure payloads); the `schema_version` field only grows,
+   never changes; logs always go to stderr. Breaking the contract requires bumping the schema major version and
+   recording an ADR.
+4. **Engine adapters**: adding an engine = a new file + one registration line in `engines/mod.rs`; parse failures go
+   through `EngineFailure` (`engine_error`/exit 4); never patch by changing the schema.
+5. **Exit-code semantics frozen** (0/2/3/4/124/1), see `src/error.rs::exit_code`.
+6. Safety red lines: no secrets written, no permission bypass, no automatic visits to third-party URLs in search
+   results (output only).
 
-## 修改架构文档
+## Modifying architecture docs
 
-- `docs/design.md` 的重大结构变更（分层、ADR、契约）需用户确认后再改；小修正（笔误、编号）可直接改。
-- 新决策记录为 ADR：追加到 `docs/adr/NNNN-标题.md`（`docs/design.md` §4 为索引表，格式参照 docs-style 模板）。
+- Major structural changes to `docs/design.md` (layering, ADRs, contract) require user confirmation before changing;
+  small fixes (typos, numbering) can be made directly.
+- New decisions are recorded as ADRs: append to `docs/adr/NNNN-title.md` (`docs/design.md` §4 is the index table;
+  format follows the docs-style template).
 
-## 必跑验证命令
+## Mandatory verification commands
 
 ```bash
 cargo fmt --check
@@ -37,4 +42,4 @@ cargo deny check
 cargo machete
 ```
 
-CI 与本地使用同一套检查（见 `.github/workflows/ci.yml`、Makefile）。
+CI and local use the same checks (see `.github/workflows/ci.yml`, Makefile).

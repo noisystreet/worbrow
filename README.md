@@ -6,103 +6,86 @@
 [![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](LICENSE-MIT)
 [![MSRV](https://img.shields.io/badge/MSRV-1.97-blue)](https://github.com/noisystreet/worbrow)
 
-Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，Firefox 走 Marionette，协议层自研）在通用搜索引擎上执行搜索，输出稳定 JSON 契约供 AI agent 以子进程方式调用。
+Agent search CLI: drives **local headless browsers** (Chrome/Edge via hand-written CDP, Firefox via hand-written Marionette) to search general web search engines, emitting a stable JSON contract for AI agents to invoke as a subprocess.
 
-架构设计与决策见 [docs/design.md](docs/design.md)；功能路线见 [docs/roadmap.md](docs/roadmap.md)。
+Architecture & decisions: [docs/design.md](docs/design.md); feature roadmap: [docs/roadmap.md](docs/roadmap.md). 简体中文版见 [README.zh-CN.md](README.zh-CN.md).
 
-## 快速开始
+## Quick Start
 
-前置：系统装有 Chrome/Edge（≥ 109）或 Firefox（≥ 55）。
+Prerequisites: Chrome/Edge (>= 109) or Firefox (>= 55) installed on the system.
 
 ```bash
-cargo run -- list                    # 列出可用引擎
-cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/后端状态）
-cargo run -- "rust 异步运行时" --json   # 默认引擎 bing、默认超时 60s
+cargo run -- list                    # list available engines
+cargo run -- doctor                  # environment self-check (browser binaries/engines/backend status)
+cargo run -- "rust async runtime" --json   # default engine bing, default timeout 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
-cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # 翻页聚合 + 语言/地域
-cargo run -- "rust" --freshness week --safesearch strict                       # 时间过滤 + 安全搜索
-cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # 站点/文件类型过滤
-cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低质/低产时自动尝试下一个）
-cargo run -- "rust" --retry 2                  # 瞬时网络错误退避重试（指数退避封顶 8s）
-# 正文抓取 + 结构化提取（ADR-009）：agent 显式传入 URL，返回清洗正文与可选字段
+cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # multi-page aggregation + language/region
+cargo run -- "rust" --freshness week --safesearch strict                       # freshness filter + safe search
+cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # site/file-type filter
+cargo run -- "rust" --engine bing,duckduckgo   # engine fallback chain (auto-tries the next on captcha/low-quality/low-yield)
+cargo run -- "rust" --retry 2                  # backoff retry on transient network errors (exponential backoff capped at 8s)
+# body fetch + structured extraction (ADR-009): pass an explicit URL, get cleaned text and optional fields
 cargo run -- fetch https://example.com/rust --json
-cargo run -- fetch https://example.com --extract price,rating --json    # 字段提取（allowlist）
-cargo run -- fetch https://example.com --no-text --extract price        # 只要字段，省 token
+cargo run -- fetch https://example.com --extract price,rating --json    # field extraction (allowlist)
+cargo run -- fetch https://example.com --no-text --extract price        # fields only, saves tokens
 ```
 
-当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
-`fake` 供测试/冒烟。协议实现见 [ADR-002](docs/adr/0002-browser-driver-protocols.md)。
+Backend status: `firefox` (Marionette, hand-written protocol) and `chrome` (CDP, hand-written protocol) are both implemented; `fake` is for tests/smoke. Protocol implementation: [ADR-002](docs/adr/0002-browser-driver-protocols.md).
 
-### 安装（Debian/Ubuntu）
+### Installation (Debian/Ubuntu)
 
-发布形态的 `.deb` 含 MCP 支持（`worbrow mcp`）：
+Release `.deb` includes MCP support (`worbrow mcp`):
 
 ```bash
-make deb                       # 生成 target/debian/worbrow_*.deb
+make deb                       # produces target/debian/worbrow_*.deb
 sudo apt install ./target/debian/worbrow_*.deb
 ```
 
-或直接在 CI 产物/发布页安装；运行时弱依赖 Firefox（Recommends: firefox | firefox-esr）。
+Or install from CI artifacts / the release page; runtime soft dependency on Firefox (Recommends: firefox | firefox-esr).
 
-### MCP（Model Context Protocol）
+### MCP (Model Context Protocol)
 
 ```bash
 cargo build --release
 ```
 
-以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露工具：
-- `web_search`（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache/compact）
-- `fetch_page`（url/browser/timeout/max_chars/extract/text/retry：抓取**显式传入**的 URL，
-  返回清洗正文与可选结构化字段）
-- `list_engines`（列出可用引擎）、`doctor`（环境自检：浏览器二进制/版本/引擎注册表）
+Run `worbrow mcp` as an MCP stdio server, exposing tools to MCP clients:
+- `web_search` (query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache/compact)
+- `fetch_page` (url/browser/timeout/max_chars/extract/text/retry: fetches an **explicitly passed** URL, returns cleaned body text and optional structured fields)
+- `list_engines` (list available engines), `doctor` (environment self-check: browser binaries/versions/engine registry)
 
-工具结果复用输出契约（schema v1）。`compact=true` 时 `web_search` 结果仅含
-rank/title/url（省 agent 上下文 token，meta 完整）。
-设计见 [ADR-005](docs/adr/0005-mcp-stdio-server.md) 与 [ADR-009](docs/adr/0009-fetch-page.md)。
-（若不需要 MCP：`cargo build --no-default-features`）
+Tool results reuse the output contract (schema v1). With `compact=true`, `web_search` results contain only rank/title/url (saves agent context tokens, meta complete).
+Design: [ADR-005](docs/adr/0005-mcp-stdio-server.md) and [ADR-009](docs/adr/0009-fetch-page.md).
+(If MCP is not needed: `cargo build --no-default-features`)
 
-`worbrow mcp --idle-timeout <secs>`：超过该时长无任何请求自动退出（防 agent 崩溃后
-残留进程；0 = 禁用，默认）。
+`worbrow mcp --idle-timeout <secs>`: exits automatically after this long without any request (prevents orphan processes after an agent crashes; 0 = disabled, the default).
 
-**会话池化（MCP 长驻）**：MCP 进程内复用浏览器进程，消除每次搜索 spawn 2-5s 开销。
-`--max-sessions <n>` 并发上限（默认 1 = 串行复用，超限排队）、`--session-ttl <sec>`
-空闲会话回收阈值（默认 60s）；空闲超 TTL 自动回收、崩溃会话自动重建，对 agent 透明
-（schema v1 不变）。设计见 [ADR-007](docs/adr/0007-mcp-session-pool.md)。
+**Session pooling (MCP long-running)**: browser processes are reused inside the MCP process, removing the 2-5s spawn overhead per search.
+`--max-sessions <n>` concurrency cap (default 1 = serial reuse, excess queued), `--session-ttl <sec>` idle-session reclamation threshold (default 60s); idle sessions past TTL are recycled, crashed sessions auto-rebuilt, transparent to agents (schema v1 unchanged). Design: [ADR-007](docs/adr/0007-mcp-session-pool.md).
 
-**网络重试与结果缓存（ADR-008）**：`retry` 请求参数（默认 0）对瞬时网络错误指数退避
-重试（封顶 8s，计入超时预算）；`meta.retries` 记录实际重试次数。MCP 长驻进程内相同
-请求参数在 60s TTL 内重复调用直接命中缓存（`meta.cached=true`，`elapsed_ms=0`），
-`no_cache` 参数可绕过。CLI `--retry <n>` 同样支持重试（无缓存）。
+**Network retry & result cache (ADR-008)**: the `retry` parameter (default 0) applies exponential backoff to transient network errors (capped at 8s, counted in the timeout budget); `meta.retries` records the actual retry count. Inside the long-running MCP process, repeated calls with identical parameters within a 60s TTL hit the cache directly (`meta.cached=true`, `elapsed_ms=0`); `no_cache` bypasses it. The CLI `--retry <n>` supports retry as well (no cache).
 
-### 正文抓取与结构化提取（ADR-009）
+### Body fetch & structured extraction (ADR-009)
 
-`fetch_page` / `worbrow fetch <url>` 抓取 **agent 显式传入** 的 URL，返回清洗后的正文
-文本，并可经 `extract` 白名单提取结构化字段（title/author/published_at/price/currency/
-rating/rating_max/reviews_count，提取优先级 JSON-LD → meta → DOM，缺失缺省不编造）：
+`fetch_page` / `worbrow fetch <url>` fetches an **explicitly passed** URL and returns cleaned body text, optionally extracting structured fields via the `extract` allowlist (title/author/published_at/price/currency/rating/rating_max/reviews_count; extraction priority JSON-LD → meta → DOM; missing fields are omitted, never fabricated):
 
 ```bash
 worbrow fetch https://example.com --json --extract price,rating
 ```
 
-- **闭环用法**：把 `web_search` 结果里的 `results[i].url` 显式传给 `fetch_page`
-  ——「搜到链接 → 读内容 → 比字段」一步到位；**绝不自动跟随搜索结果**（只抓显式 URL）
-- **参数**：`--max-chars <n>`（正文截断，默认 20000，`meta.truncated` 标记）、
-  `--no-text`（只要 `extracted`，省 token）、`--extract a,b`（allowlist，非法值 exit 2）
-- **已知行为**：HTTP 4xx/5xx/验证码/404 页导航成功即成功包（正文可能为空，v1 不检测
-  HTTP 状态码）；`meta.final_url` 记录重定向落地页；SPA/懒加载内容可能缺失
-- **安全边界**：仅 `http/https`（缺 scheme 自动补 `https://`）；用真实浏览器导航，
-  页面 JS 在浏览器内执行（等价自己点开链接）；**可访问本机/内网**（等价本机浏览器，
-  防止被诱导抓内网请勿对不可信输入使用）；不做批量抓取，频率纪律仍适用
-- **合规**：fetch 是用户显式发起的整页抓取，与搜索爬虫的摘要-only 政策是两条独立路径
+- **Closing the loop**: pass `results[i].url` from `web_search` explicitly to `fetch_page` — "search links → read content → compare fields" in one step; **never auto-follows search results** (fetches explicit URLs only)
+- **Parameters**: `--max-chars <n>` (body truncation, default 20000, flagged by `meta.truncated`), `--no-text` (extracted fields only, saves tokens), `--extract a,b` (allowlist, invalid values exit 2)
+- **Known behavior**: HTTP 4xx/5xx/captcha/404 pages count as successful navigation and yield a success payload (body may be empty; v1 does not check HTTP status); `meta.final_url` records the redirect landing page; SPA/lazy-loaded content may be missing
+- **Safety boundary**: `http/https` only (missing scheme defaults to `https://`); navigates with a real browser, page JS runs inside the browser (equivalent to clicking the link yourself); **can reach localhost/intranet** (equivalent to your local browser — do not feed untrusted input if you want to avoid being induced to fetch intranet content); no bulk fetching; rate discipline still applies
+- **Compliance**: fetch is an explicit full-page fetch by the user, a separate path from search engines' snippet-only crawling policy
 
-## Agent 集成
+## Agent Integration
 
-worbrow 提供两种 agent 接入方式：**MCP**（推荐，长驻进程 + 工具语义）与 **CLI 子进程**
-（零依赖、单次调用）。两条路径共享同一内核与输出契约（schema v1）。
+worbrow offers two agent integration paths: **MCP** (recommended; long-running process + tool semantics) and **CLI subprocess** (zero-dependency, one-shot). Both share the same core and output contract (schema v1).
 
 ### Claude Code
 
-在 `claude_desktop_config.json`（或 `.claude.json` 的 `mcpServers`）注册：
+Register in `claude_desktop_config.json` (or `.claude.json` under `mcpServers`):
 
 ```json
 {
@@ -115,12 +98,12 @@ worbrow 提供两种 agent 接入方式：**MCP**（推荐，长驻进程 + 工�
 }
 ```
 
-> 提示：`--idle-timeout 300` 让长驻进程在 agent 会话空闲 5 分钟后自动退出，避免残留。
-> 需保证 `worbrow` 在 PATH（`make deb` 安装后自动满足）。
+> Tip: `--idle-timeout 300` makes the long-running process exit 5 minutes after the agent session goes idle, avoiding orphans.
+> Ensure `worbrow` is on PATH (automatically satisfied after `make deb`).
 
-### Cursor / 通用 MCP 客户端
+### Cursor / generic MCP clients
 
-项目级 `.mcp.json`（Cursor）或客户端全局配置等价结构：
+Project-level `.mcp.json` (Cursor) or an equivalent global client config:
 
 ```json
 {
@@ -133,27 +116,26 @@ worbrow 提供两种 agent 接入方式：**MCP**（推荐，长驻进程 + 工�
 }
 ```
 
-工具暴露：`web_search`（参数含 engine/browser/max_results/timeout/lang/region/pages/
-freshness/safesearch/site/filetype）。
+Exposed tools: `web_search` (parameters include engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype).
 
-### CLI 子进程（无 MCP 客户端时）
+### CLI subprocess (without an MCP client)
 
 ```bash
-worbrow "rust 异步" --engine bing --max-results 8 --timeout 60 --json
+worbrow "rust async" --engine bing --max-results 8 --timeout 60 --json
 ```
 
-- 读 **stdout** JSON（`schema_version` 校验），日志在 **stderr**
-- 非 0 退出码时 stdout 仍输出错误 JSON 包（code/message/detail）
-- 结果条目自带 `domain`/`https`，无需自行解析 URL 判断来源
+- Read **stdout** JSON (validate `schema_version`), logs on **stderr**
+- On non-zero exit, stdout still carries the error JSON payload (code/message/detail)
+- Each result carries `domain`/`https`, no need to parse URLs yourself to judge the source
 
-## 调用契约（agent 侧）
+## Output contract (agent side)
 
-- **stdout** 仅输出 JSON（`--json`），日志全部走 stderr
-- 退出码语义化：`0` 成功 / `2` 参数错 / `3` 环境错 / `4` 搜索失败 / `124` 超时 / `1` 内部错
-- schema 版本化：顶层 `schema_version` 字段，字段只增不改
-- 无交互、硬超时默认 60s
+- **stdout** only emits JSON (`--json`), all logs go to stderr
+- Semantic exit codes: `0` success / `2` argument error / `3` environment error / `4` search failure / `124` timeout / `1` internal error
+- Versioned schema: top-level `schema_version` field; fields only grow, never change
+- No interaction; hard timeout defaults to 60s
 
-示例成功包：
+Example success payload:
 
 ```json
 {
@@ -170,10 +152,9 @@ worbrow "rust 异步" --engine bing --max-results 8 --timeout 60 --json
 }
 ```
 
-## 作为库使用
+## Use as a library
 
-worbrow 的库公开面是**类型级顶层 API**（ADR-006）：消费者一行 `use worbrow::...`
-完成拼装，无需感知内部模块树。
+worbrow's public library surface is a **type-level top-level API** (ADR-006): consumers assemble everything with one `use worbrow::...`, no need to know the internal module tree.
 
 ```rust
 use worbrow::{BrowserKind, Config, search};
@@ -188,7 +169,7 @@ fn main() -> Result<(), worbrow::Error> {
 }
 ```
 
-正文抓取（ADR-009）同样是一等库 API：
+Body fetch (ADR-009) is a first-class library API too:
 
 ```rust
 use worbrow::{BrowserKind, ExtractField, FetchConfig, fetch};
@@ -202,48 +183,41 @@ fn main() -> Result<(), worbrow::Error> {
 }
 ```
 
-两个入口按调用方是否已处于 tokio runtime 选择，**避免嵌套 runtime panic**：
+Pick the entry point by whether you are already inside a tokio runtime, to **avoid nested-runtime panics**:
 
-- `search`（同步）：无 runtime 上下文时用（`main`/CLI/脚本/`spawn_blocking` 闭包）；
-  内部自建 runtime，**勿在 async 上下文调用**
-- `run`（async）：已有 runtime 时用（MCP handler / `#[tokio::main]` / `#[tokio::test]`），
-  直接 `await` 复用外部 runtime；async 内需同步阻塞等待时可
-  `tokio::task::block_in_place(|| handle.block_on(run(cfg)))`（需 multi-thread runtime）
+- `search` (sync): use when there is no runtime context (`main`/CLI/scripts/`spawn_blocking` closures); builds its own runtime internally, **do not call in async contexts**
+- `run` (async): use when a runtime already exists (MCP handlers / `#[tokio::main]` / `#[tokio::test]`), awaiting reuses the external runtime; to block-synchronously wait inside async, use `tokio::task::block_in_place(|| handle.block_on(run(cfg)))` (needs a multi-thread runtime)
 
-- **依赖面**：库消费可用 `default-features = false` 去掉 MCP 依赖（`rmcp`）
-  ——`mcp` feature 默认启用仅为服务 CLI 二进制
-- **扩展**：自定义引擎实现 [`SearchProvider`](https://docs.rs/worbrow/latest/worbrow/trait.SearchProvider.html)
-  并经 `Config::with_provider` 注入；自定义浏览器后端实现 `BrowserDriver` 并经
-  `Config::with_driver` 注入
-- **契约序列化**：`SuccessPayload`/`ErrorPayload`（含 `schema_version`）可直接
-  `serde_json::to_string`；可运行示例见 `examples/`（`cargo run --example basic_search`）
+- **Dependency surface**: library consumers can use `default-features = false` to drop the MCP dependency (`rmcp`) — the `mcp` feature is enabled by default only to serve the CLI binary
+- **Extension**: implement a custom engine via [`SearchProvider`](https://docs.rs/worbrow/latest/worbrow/trait.SearchProvider.html) and inject it with `Config::with_provider`; implement a custom browser backend via `BrowserDriver` and inject it with `Config::with_driver`
+- **Contract serialization**: `SuccessPayload`/`ErrorPayload` (including `schema_version`) can be `serde_json::to_string`'d directly; runnable examples live in `examples/` (`cargo run --example basic_search`)
 
-## 质量命令
+## Quality commands
 
-未安装 `just`，统一入口为 `make`：
+No `just`; the unified entry point is `make`:
 
 ```bash
-make check      # fmt + clippy(-D warnings，认知复杂度 ≤10) + test
-make test       # cargo test（默认含 mcp，CI 无需浏览器）
-make deny       # cargo-deny 许可/漏洞检查
-make machete    # 未使用依赖检查
-make doctor     # 运行 worbrow doctor
+make check      # fmt + clippy(-D warnings, cognitive complexity <= 10) + test
+make test       # cargo test (mcp enabled by default, CI needs no browser)
+make deny       # cargo-deny license/vulnerability check
+make machete    # unused-dependency check
+make doctor     # run worbrow doctor
 ```
 
-## 目录
+## Layout
 
 ```
 src/
-  main.rs    # 薄入口 + CLI 参数解析（clap，bin 私有）
-  lib.rs     # 库公开面：顶层 re-export（Config/BrowserKind/...，ADR-006）
+  main.rs    # thin entry + CLI parsing (clap, bin-private)
+  lib.rs     # public library surface: top-level re-exports (Config/BrowserKind/..., ADR-006)
   app.rs domain.rs error.rs ports.rs output.rs extract.rs
-  drivers/   # resolve · jsonrpc(共用框架) · cdp · marionette · fake
+  drivers/   # resolve · jsonrpc(shared framework) · cdp · marionette · fake
   engines/   # resolve/AVAILABLE · duckduckgo · bing
-tests/       # 集成测试 + fixtures（离线 HTML golden）
+tests/       # integration tests + fixtures (offline HTML golden)
 ```
 
-依赖方向：`cli → app → domain/ports ← adapters(drivers/engines)`，禁止反向。
+Dependency direction: `cli → app → domain/ports ← adapters(drivers/engines)`, reverse is forbidden.
 
 ## License
 
-MIT OR Apache-2.0（见 [LICENSE-MIT](LICENSE-MIT)；Apache-2.0 文本见 <https://www.apache.org/licenses/LICENSE-2.0>）。
+MIT OR Apache-2.0 (see [LICENSE-MIT](LICENSE-MIT); Apache-2.0 text at <https://www.apache.org/licenses/LICENSE-2.0>).
