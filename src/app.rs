@@ -44,6 +44,49 @@ fn content_count(results: &[SearchResult]) -> usize {
         .count()
 }
 
+/// 查询词重叠相关性门禁（roadmap-result-quality.md P3）：纯词面统计，不做语义判断。
+///
+/// 背景：Bing 对空格分隔的多词中文查询可能锚定首强实体（如「中国基金 数据 网站 天天
+/// 基金网 蛋卷基金 净值查询」→ 恒返回中国维基/百科，9/10 结果离题），数量与类型均
+/// 正常，现有数量/占比门禁无法识别——必须让降级链有机会切到下一引擎。
+///
+/// 规则：
+/// - 仅当查询含 ≥2 个原始词且 ≥1 个显著词（长度 ≥3）时判定（单词查询多为导航性/
+///   歧义查询，不做相关性判定）；
+/// - 显著词过滤「数据/网站/查询」类短泛词，避免「中国政府网」里的「网站」误判命中；
+/// - 结果集（标题+摘要+域名，小写）与全部显著词**零重叠** → 判离题（`false`）。
+///
+/// 单次误判代价 = 多试一个引擎（沿用既有降级链），可接受。
+fn relevant(results: &[SearchResult], query: &str) -> bool {
+    let terms: Vec<&str> = query.split_whitespace().collect();
+    if terms.len() < 2 {
+        return true;
+    }
+    let significant: Vec<&str> = terms
+        .iter()
+        .copied()
+        .filter(|t| t.chars().count() >= 3)
+        .collect();
+    if significant.is_empty() {
+        return true;
+    }
+    let haystacks: Vec<String> = results
+        .iter()
+        .map(|r| {
+            format!(
+                "{} {} {}",
+                r.title.to_lowercase(),
+                r.snippet.to_lowercase(),
+                r.domain.to_lowercase()
+            )
+        })
+        .collect();
+    significant.iter().any(|t| {
+        let term = t.to_lowercase();
+        haystacks.iter().any(|h| h.contains(&term))
+    })
+}
+
 /// 搜索配置（ADR-006 公开面；字段私有，构造与修改只经 [`Config::new`]/builder，保证不变量）。
 pub struct Config {
     query: String,
@@ -783,13 +826,15 @@ async fn handle_engine_result(
 ) -> Result<Option<(&'static str, String, Vec<SearchResult>, bool, usize, bool)>, Error> {
     match result {
         Ok((html, results, captcha, pages)) => {
-            // 满意：内容型（web）结果集满请求量或非低产（≥ 阈值），且 web 占比 ≥ 50%
-            //（P2 同质化检测，roadmap-result-quality.md：词典/翻译污染不计入、
-            // 多义混入致 web 占比过低同样降级）
+            // 满意：内容型（web）结果集满请求量或非低产（≥ 阈值），web 占比 ≥ 50%，
+            // 且与查询词有重叠（P3 相关性门禁，roadmap-result-quality.md：离题但
+            // 类型正常的 Web 结果同样降级）
             let content = content_count(&results);
             let web_ratio_ok = content * 2 >= results.len();
-            let satisfied =
-                web_ratio_ok && (content >= query.max_results || content >= LOW_YIELD_THRESHOLD);
+            let relevance_ok = relevant(&results, &query.text);
+            let satisfied = web_ratio_ok
+                && relevance_ok
+                && (content >= query.max_results || content >= LOW_YIELD_THRESHOLD);
             if satisfied {
                 tracing::info!(
                     engine = provider.name(),
@@ -1421,6 +1466,222 @@ mod tests {
             .with_site(Some("example.com".into()));
         let outcome = run_with(&mut driver, cfg).await.expect("应成功");
         assert_eq!(outcome.results.len(), 4, "site: 过滤时同域名不截断");
+    }
+
+    // ==== P3 相关性门禁（roadmap-result-quality.md）====
+
+    /// 构造一条 web 结果（测试用）。
+    fn result(title: &str, snippet: &str, domain: &str) -> SearchResult {
+        SearchResult {
+            rank: 1,
+            title: title.into(),
+            url: format!("https://{domain}/"),
+            snippet: snippet.into(),
+            domain: domain.into(),
+            https: true,
+            published_at: None,
+            is_ad: false,
+            url_resolved: false,
+            result_kind: crate::domain::ResultKind::Web,
+        }
+    }
+
+    /// 真实故障样本（CrabMate 会话导出）：Bing 对「中国基金 数据 网站 天天基金网
+    /// 蛋卷基金 净值查询」锚定「中国」，返回中国维基/百科——数量/类型正常但零词面重叠。
+    #[test]
+    fn relevant_detects_topic_mismatch_for_multi_term_queries() {
+        let q = "中国基金 数据 网站 天天基金网 蛋卷基金 净值查询";
+        let china_results = vec![
+            result(
+                "中國 - 维基百科，自由的百科全书",
+                "中国最早成型于新石器时期与青铜时期之间的过渡期…",
+                "zh.m.wikipedia.org",
+            ),
+            result(
+                "中华人民共和国 - 维基百科，自由的百科全书",
+                "1949年9月21日，中国人民政治协商会议第一次全体会议…",
+                "zh.m.wikipedia.org",
+            ),
+            result(
+                "中华人民共和国_百度百科",
+                "中华人民共和国简称中国，位于亚洲东部…",
+                "baike.baidu.com",
+            ),
+            result("中国政府网_中央人民政府门户网站", "政策解读…", "www.gov.cn"),
+        ];
+        assert!(
+            !relevant(&china_results, q),
+            "零词面重叠应判离题（「网站」为短泛词不计显著词）"
+        );
+
+        // 同一查询命中基金站点 → 相关（命中显著词「天天基金网」）
+        let fund_results = vec![
+            result(
+                "天天基金网 净值查询",
+                "天天基金网是东方财富旗下基金平台…",
+                "fund.eastmoney.com",
+            ),
+            result(
+                "蛋卷基金官网",
+                "蛋卷基金净值查询与定投…",
+                "danjuanfunds.com",
+            ),
+        ];
+        assert!(relevant(&fund_results, q), "命中显著词应判相关");
+    }
+
+    /// 单词查询（导航性/歧义）与全短泛词查询不做相关性判定（防误伤）。
+    #[test]
+    fn relevant_skips_single_term_and_short_term_queries() {
+        let any = vec![result("同域一", "摘要", "example.com")];
+        assert!(relevant(&any, "rust"), "单词查询跳过判定");
+        let any2 = vec![result("中国政府网", "政策解读…", "www.gov.cn")];
+        assert!(
+            relevant(&any2, "数据 网站"),
+            "全为短泛词（<3 字符）→ 无可判显著词，跳过"
+        );
+    }
+
+    /// 词面重叠大小写不敏感。
+    #[test]
+    fn relevant_is_case_insensitive() {
+        let r = vec![result("Learn Rust async/await", "…", "doc.rust-lang.org")];
+        assert!(relevant(&r, "rust async"), "Rust 应命中小写 rust");
+    }
+
+    /// 短泛词（「网站」）不构成命中：中国政府网含「网站」但不含任何显著词。
+    #[test]
+    fn relevant_short_generic_word_does_not_count_as_hit() {
+        let q = "中国基金 数据 网站 天天基金网 蛋卷基金 净值查询";
+        let r = vec![result(
+            "中国政府网_中央人民政府门户网站",
+            "政策解读…网站…",
+            "www.gov.cn",
+        )];
+        assert!(!relevant(&r, q), "仅命中短泛词不应判相关");
+    }
+
+    /// P3 核心：Bing 返回离题但类型正常的 Web 结果（数量达标、占比达标）→ 相关性
+    /// 门禁触发 → 降级 DuckDuckGo，采用其相关内容结果。
+    #[tokio::test]
+    async fn irrelevant_web_results_trigger_engine_fallback() {
+        /// Bing 风格：5 条中国维基/百科/政府站（全部 web，占比 100%，但零词面重叠）。
+        const IRRELEVANT_BING_HTML: &str = r#"<html><body><ol id="b_results">
+          <li class="b_algo"><h2><a href="https://zh.m.wikipedia.org/wiki/%E4%B8%AD%E5%9C%8B">中國 - 维基百科</a></h2><div class="b_caption"><p>中国最早成型于新石器时期…</p></div></li>
+          <li class="b_algo"><h2><a href="https://zh.m.wikipedia.org/wiki/%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD">中华人民共和国 - 维基百科</a></h2><div class="b_caption"><p>1949年…</p></div></li>
+          <li class="b_algo"><h2><a href="https://baike.baidu.com/item/%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD">中华人民共和国_百度百科</a></h2><div class="b_caption"><p>简称中国…</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.gov.cn/">中国政府网</a></h2><div class="b_caption"><p>政策解读…</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.bbc.com/zhongwen/topics/ckr7mn6r003t/simp">中国 - BBC News 中文</a></h2><div class="b_caption"><p>BBC中文网关于中国的最新新闻…</p></div></li>
+        </ol></body></html>"#;
+        /// DDG 风格：3 条基金站点（命中查询显著词）。
+        const RELEVANT_DDG_HTML: &str = r#"<html><body>
+          <div class="result"><a class="result__a" href="https://fund.eastmoney.com/">天天基金网 (1234567.com.cn) 基金数据</a><a class="result__snippet">东方财富旗下基金平台，提供净值查询。</a></div>
+          <div class="result"><a class="result__a" href="https://danjuanfunds.com/">蛋卷基金官网</a><a class="result__snippet">蛋卷基金净值查询与定投。</a></div>
+          <div class="result"><a class="result__a" href="https://www.howbuy.com/">好买基金网</a><a class="result__snippet">基金数据与净值查询。</a></div>
+        </body></html>"#;
+
+        /// 按导航 URL 返回不同页面：bing → 离题集群；ddg → 相关结果。
+        struct TopicDriver {
+            current: Option<String>,
+        }
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for TopicDriver {
+            async fn navigate(&mut self, url: url::Url) -> Result<(), Error> {
+                self.current = Some(url.to_string());
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                let url = self.current.as_deref().unwrap_or_default();
+                if url.contains("bing.com") {
+                    Ok(IRRELEVANT_BING_HTML.to_string())
+                } else {
+                    Ok(RELEVANT_DDG_HTML.to_string())
+                }
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = TopicDriver { current: None };
+        let cfg = Config::new(
+            "中国基金 数据 网站 天天基金网 蛋卷基金 净值查询",
+            "bing,duckduckgo",
+            BrowserKind::Fake,
+        )
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(10));
+        let outcome = run_with(&mut driver, cfg).await.expect("降级后应成功");
+        // 离题集群不满足 → 降级 ddg 并采用其相关内容结果
+        assert_eq!(outcome.meta.engine, "duckduckgo");
+        assert_eq!(outcome.meta.engine_tried, vec!["bing", "duckduckgo"]);
+        assert!(!outcome.meta.low_yield, "ddg 3 条内容型 ≥ 阈值");
+    }
+
+    /// 单引擎（无降级链）时离题结果不崩溃：候选兜底成功并标记 low_yield。
+    #[tokio::test]
+    async fn irrelevant_results_single_engine_marks_low_yield() {
+        /// Bing 风格：2 条中国维基（web，零词面重叠）。
+        const IRRELEVANT_BING_HTML: &str = r#"<html><body><ol id="b_results">
+          <li class="b_algo"><h2><a href="https://zh.m.wikipedia.org/wiki/%E4%B8%AD%E5%9C%8B">中國 - 维基百科</a></h2><div class="b_caption"><p>中国最早成型于新石器时期…</p></div></li>
+          <li class="b_algo"><h2><a href="https://zh.m.wikipedia.org/wiki/%E4%B8%AD%E5%8D%8E%E4%BA%BA%E6%B0%91%E5%85%B1%E5%92%8C%E5%9B%BD">中华人民共和国 - 维基百科</a></h2><div class="b_caption"><p>1949年…</p></div></li>
+        </ol></body></html>"#;
+
+        struct FixedDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for FixedDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(IRRELEVANT_BING_HTML.to_string())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = FixedDriver;
+        let cfg = Config::new(
+            "中国基金 数据 网站 天天基金网 蛋卷基金 净值查询",
+            "bing",
+            BrowserKind::Fake,
+        )
+        .with_max_results(5)
+        .with_timeout(Duration::from_secs(10));
+        let outcome = run_with(&mut driver, cfg)
+            .await
+            .expect("单引擎离题应兜底成功");
+        assert_eq!(outcome.meta.engine, "bing");
+        assert_eq!(outcome.meta.engine_tried, vec!["bing"]);
+        assert!(outcome.meta.low_yield, "离题结果应标记 low_yield");
+    }
+
+    /// 回归：多词查询 + 相关结果 → 不触发相关性降级（首引擎直接采用）。
+    #[tokio::test]
+    async fn relevant_multi_term_results_do_not_trigger_fallback() {
+        let mut driver = crate::drivers::resolve(BrowserKind::Fake)
+            .await
+            .expect("resolve Fake 应成功");
+        let cfg = Config::new("rust 异步", "bing", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut *driver, cfg).await.expect("应成功");
+        assert_eq!(outcome.meta.engine, "bing", "相关结果不应降级");
+        assert_eq!(outcome.meta.engine_tried, vec!["bing"]);
+        assert!(!outcome.meta.low_yield);
     }
 
     // ==== fetch（ADR-009）====

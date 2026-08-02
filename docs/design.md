@@ -170,7 +170,7 @@ clap derive 定义参数（示意）：
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<query>` | string | 有子命令时省略 | 搜索词 |
-| `--engine` | string | `bing` | 引擎名；逗号分隔 = 降级尝试顺序（如 `bing,duckduckgo`；可用：`worbrow list` 查看） |
+| `--engine` | string | `bing,duckduckgo` | 引擎名/降级链；逗号分隔 = 降级尝试顺序（如 `bing,duckduckgo`；可用：`worbrow list` 查看） |
 | `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，已实现） |
 | `--max-results` | usize | 10 | 返回条数上限 |
 | `--timeout` | secs | 60 | 全流程硬超时 |

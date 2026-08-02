@@ -17,7 +17,7 @@ Prerequisites: Chrome/Edge (>= 109) or Firefox (>= 55) installed on the system.
 ```bash
 cargo run -- list                    # list available engines
 cargo run -- doctor                  # environment self-check (browser binaries/engines/backend status)
-cargo run -- "rust async runtime" --json   # default engine bing, default timeout 60s
+cargo run -- "rust async runtime" --json   # default engine bing→duckduckgo fallback, default timeout 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # multi-page aggregation + language/region
 cargo run -- "rust" --freshness week --safesearch strict                       # freshness filter + safe search
