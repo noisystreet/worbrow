@@ -37,6 +37,25 @@ jobs:
       - name: machete (unused dependencies)
         uses: bnjbvr/cargo-machete@main
 
+  compile:
+    # 跨平台编译验证：与 release.yml 的发布矩阵对齐（ubuntu/macos/windows），
+    # 保证 tag 发布时三平台构建可直接成功（PR 阶段即暴露编译级问题）
+    name: compile (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: check (all features, --locked)
+        run: cargo check --all-features --locked
+
   msrv:
     # 验证声明的最低 Rust 版本（Cargo.toml rust-version = 1.97）确实可编译
     name: MSRV (1.97) check

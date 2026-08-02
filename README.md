@@ -32,16 +32,15 @@ cargo run -- fetch https://example.com --no-text --extract price        # fields
 
 Backend status: `firefox` (Marionette, hand-written protocol) and `chrome` (CDP, hand-written protocol) are both implemented; `fake` is for tests/smoke. Protocol implementation: [ADR-002](docs/adr/0002-browser-driver-protocols.md).
 
-### Installation (Debian/Ubuntu)
+### Installation
 
-Release `.deb` includes MCP support (`worbrow mcp`):
+**Prebuilt binaries** are attached to every [GitHub Release](https://github.com/noisystreet/worbrow/releases) (`v*` tags): `worbrow-linux-x86_64.tar.gz`, `worbrow-macos-arm64.tar.gz`, `worbrow-windows-x86_64.zip`, each with a `SHA256SUMS` checksum. Debian/Ubuntu users can also install the release `.deb` (includes MCP support, `worbrow mcp`):
 
 ```bash
-make deb                       # produces target/debian/worbrow_*.deb
-sudo apt install ./target/debian/worbrow_*.deb
+sudo apt install ./worbrow_*.deb
 ```
 
-Or install from CI artifacts / the release page; runtime soft dependency on Firefox (Recommends: firefox | firefox-esr).
+Or build from source (`cargo install worbrow`, or `make deb` for a local `.deb`). Runtime soft dependency on Firefox (Recommends: firefox | firefox-esr).
 
 ### MCP (Model Context Protocol)
 
