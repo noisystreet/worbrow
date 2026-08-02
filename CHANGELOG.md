@@ -13,6 +13,9 @@ This file records user-visible changes (Keep a Changelog style).
   数量与类型均正常但完全离题），该类结果此前不会被既有数量/占比门禁拦截
 - **默认引擎改为降级链 `bing,duckduckgo,baidu`**（CLI 与 MCP 一致）：Bing 首选满足质量
   门禁时仍只用 Bing；离题/低质/低产/验证码时自动尝试 DuckDuckGo，中文长尾再兜底百度
+- **相关性门禁阈值细化（P3）**：判定从「零词面重叠」放宽为「命中显著词的结果占比
+  < 1/5（20%）」，覆盖部分重叠的弱相关离题（如 10 条中仅 1 条命中）——零重叠是强
+  信号但过于严格，占比阈值给降级链更多判断空间
 
 ### Added
 

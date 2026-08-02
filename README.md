@@ -203,6 +203,23 @@ make machete    # unused-dependency check
 make doctor     # run worbrow doctor
 ```
 
+## Search tips
+
+- **Avoid stacking nouns separated by spaces in Chinese queries**: Bing may anchor
+  the whole query to the first strong entity (e.g. a fund-data query returns China
+  wiki/baike pages) — results are plentiful and well-formed but completely
+  off-topic. The relevance gate falls back to DuckDuckGo/Baidu automatically, but
+  it is more reliable to cut noisy terms; use double quotes for exact phrases
+  (e.g. `"天天基金网 净值查询"`)
+- **Engine choice**: `--engine duckduckgo` (most reliable for Chinese queries in
+  practice), `--engine baidu` (Chinese long-tail; reachable from CN networks with
+  no CAPTCHA wall), `--engine bing` (English queries); the default chain
+  `bing,duckduckgo,baidu` tries the next engine when the quality gates fail
+- **Query quality**: avoid piling up high-noise words such as `best`/`learn`
+  (Bing tends to misclassify them as dictionary intent; see
+  [docs/roadmap-result-quality.md](docs/roadmap-result-quality.md)); rephrase with
+  synonyms, quotes, or `site:` constraints when results are poor
+
 ## Layout
 
 ```
@@ -211,7 +228,7 @@ src/
   lib.rs     # public library surface: top-level re-exports (Config/BrowserKind/..., ADR-006)
   app.rs domain.rs error.rs ports.rs output.rs extract.rs
   drivers/   # resolve · jsonrpc(shared framework) · cdp · marionette · fake
-  engines/   # resolve/AVAILABLE · duckduckgo · bing
+  engines/   # resolve/AVAILABLE · duckduckgo · bing · baidu
 tests/       # integration tests + fixtures (offline HTML golden)
 ```
 

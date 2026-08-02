@@ -137,9 +137,16 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 验证 | extract 单测（噪音剥离/截断/字段类型）；app 单测（URL 归一化/正文+字段+final_url/text=false）；FakeDriver 集成；MCP/CLI 集成（成功包/非法 URL/非法 extract → isError 或 exit 2） |
 | 风险 | 正文提取质量依赖页面结构（尽力语义明示）；SSRF/内网可达（工具描述 + README 明示，prompt injection 缓解）；合规划界（fetch = 用户显式导航，与 snippet-only 政策分离） |
 
-### P2：新引擎（baidu）
+### P2：新引擎（baidu）—— ✅ 已完成（2026-08）
 
-复用 `SearchProvider` 模板 + fixture（见 [CONTRIBUTING.md](../CONTRIBUTING.md) 常见任务）。前置评估：反爬强度、headless 可达性；失败走 `EngineFailure`（exit 4）。若收益不足可推迟或不做。
+复用 `SearchProvider` 模板 + fixture（见 [CONTRIBUTING.md](../CONTRIBUTING.md) 常见任务）。
+前置评估：反爬强度、headless 可达性；失败走 `EngineFailure`（exit 4）。若收益不足可推迟或不做。
+
+> 实施见提交 `feat: add Baidu search engine + extend default fallback chain`：
+> `engines/baidu.rs` URL 直访 `baidu.com/s?wd=`，解析 `div.result` 容器，真实目标
+> URL 取自容器 `mu` 属性（href 为不可本地解码的 `baidu.com/link` 跳转链，
+> `url_resolved=true`，缺失回退链式 URL）；CN 网络直连无验证码（对比 Google 实测
+> 被验证码墙拦截）；默认引擎链扩展为 `bing,duckduckgo,baidu`。
 
 ## 4. 实施顺序
 
@@ -147,7 +154,7 @@ CDP 后端 → 会话复用 → 搜索参数增强 → agent 契约增强 → �
 结果质量信号（[roadmap-result-quality.md](roadmap-result-quality.md)）→
 搜索参数补全（[roadmap-search-params.md](roadmap-search-params.md)）→
 网络重试与缓存 → MCP 体验完善 → 正文抓取与结构化提取
-（[roadmap-fetch.md](roadmap-fetch.md)，ADR-009）→（P2 baidu 视评估）
+（[roadmap-fetch.md](roadmap-fetch.md)，ADR-009）→ P2 baidu（已完成，见 §3）
 
 > 会话复用：已落地（ADR-007，见 §3 P1 章节）。
 > 网络重试与缓存：已落地（ADR-008，见 §3 P1 章节）。

@@ -44,6 +44,11 @@ fn content_count(results: &[SearchResult]) -> usize {
         .count()
 }
 
+/// 相关性命中占比阈值（P3 门禁细化，roadmap-result-quality.md）：命中至少一个显著词
+/// 的结果占比 **低于 1/5（20%）** 判离题。零重叠是强信号但过于严格——部分重叠
+/// （如 10 条中仅 1 条命中）同样是弱相关。整数比例（`hits * 5 >= len`）避免浮点比较。
+const RELEVANT_HIT_RATIO: usize = 5;
+
 /// 查询词重叠相关性门禁（roadmap-result-quality.md P3）：纯词面统计，不做语义判断。
 ///
 /// 背景：Bing 对空格分隔的多词中文查询可能锚定首强实体（如「中国基金 数据 网站 天天
@@ -54,7 +59,8 @@ fn content_count(results: &[SearchResult]) -> usize {
 /// - 仅当查询含 ≥2 个原始词且 ≥1 个显著词（长度 ≥3）时判定（单词查询多为导航性/
 ///   歧义查询，不做相关性判定）；
 /// - 显著词过滤「数据/网站/查询」类短泛词，避免「中国政府网」里的「网站」误判命中；
-/// - 结果集（标题+摘要+域名，小写）与全部显著词**零重叠** → 判离题（`false`）。
+/// - 结果集（标题+摘要+域名，小写）中命中任一显著词的结果占比 < 1/5（20%）
+///   → 判离题（`false`）；空结果集不额外拦截（由内容型数量门禁兜底）。
 ///
 /// 单次误判代价 = 多试一个引擎（沿用既有降级链），可接受。
 fn relevant(results: &[SearchResult], query: &str) -> bool {
@@ -70,21 +76,19 @@ fn relevant(results: &[SearchResult], query: &str) -> bool {
     if significant.is_empty() {
         return true;
     }
-    let haystacks: Vec<String> = results
+    let hits = results
         .iter()
-        .map(|r| {
-            format!(
+        .filter(|r| {
+            let hay = format!(
                 "{} {} {}",
                 r.title.to_lowercase(),
                 r.snippet.to_lowercase(),
                 r.domain.to_lowercase()
-            )
+            );
+            significant.iter().any(|t| hay.contains(&t.to_lowercase()))
         })
-        .collect();
-    significant.iter().any(|t| {
-        let term = t.to_lowercase();
-        haystacks.iter().any(|h| h.contains(&term))
-    })
+        .count();
+    results.is_empty() || hits * RELEVANT_HIT_RATIO >= results.len()
 }
 
 /// 搜索配置（ADR-006 公开面；字段私有，构造与修改只经 [`Config::new`]/builder，保证不变量）。
@@ -1559,6 +1563,44 @@ mod tests {
             "www.gov.cn",
         )];
         assert!(!relevant(&r, q), "仅命中短泛词不应判相关");
+    }
+
+    /// P3 门禁细化（C1）：部分重叠但占比低于 1/5 → 仍判离题；恰好 ≥1/5 → 判相关。
+    #[test]
+    fn relevant_requires_hit_ratio_threshold() {
+        let q = "中国基金 数据 网站 天天基金网 蛋卷基金 净值查询";
+        // 10 条中仅 1 条命中显著词（10% < 20%）→ 离题
+        let mut off_topic = vec![result("中国政府网", "政策解读…", "www.gov.cn",); 9];
+        off_topic.push(result(
+            "天天基金网 净值查询",
+            "天天基金网是东方财富旗下基金平台…",
+            "fund.eastmoney.com",
+        ));
+        assert_eq!(off_topic.len(), 10);
+        assert!(
+            !relevant(&off_topic, q),
+            "1/10 命中（10%）低于 1/5 阈值应判离题"
+        );
+        // 10 条中 2 条命中（20% = 阈值）→ 相关
+        let mut on_topic = vec![result("中国政府网", "政策解读…", "www.gov.cn",); 8];
+        on_topic.push(result(
+            "天天基金网 净值查询",
+            "天天基金网是东方财富旗下基金平台…",
+            "fund.eastmoney.com",
+        ));
+        on_topic.push(result(
+            "蛋卷基金官网",
+            "蛋卷基金净值查询与定投…",
+            "danjuanfunds.com",
+        ));
+        assert_eq!(on_topic.len(), 10);
+        assert!(relevant(&on_topic, q), "2/10 命中（20%）达阈值应判相关");
+    }
+
+    /// 空结果集：不额外拦截（由内容型数量门禁兜底），避免与低产判定叠加误伤。
+    #[test]
+    fn relevant_empty_results_is_not_off_topic() {
+        assert!(relevant(&[], "中国基金 数据 网站"), "空集不判离题");
     }
 
     /// P3 核心：Bing 返回离题但类型正常的 Web 结果（数量达标、占比达标）→ 相关性
