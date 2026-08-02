@@ -82,6 +82,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-007](adr/0007-mcp-session-pool.md) | MCP 会话池化（浏览器进程复用 + 空闲 TTL 回收） | 已接受 |
 | [ADR-008](adr/0008-retry-and-cache.md) | 网络重试与结果缓存（`--retry` / MCP 短 TTL 缓存） | 已接受 |
 | [ADR-009](adr/0009-fetch-page.md) | 正文抓取与结构化提取（`fetch_page` / `worbrow fetch`） | 已接受 |
+| [ADR-010](adr/0010-fetch-enhance.md) | fetch 补强（`meta.http_status` + `wait_selector` SPA 等待） | 已接受 |
 
 ---
 
@@ -218,11 +219,13 @@ run_with(&mut driver, config)     # MCP：从会话池 acquire → run_with → 
     缺 scheme 自动补 https://，去 fragment）
  2. 全局 timeout 包裹（默认 60s）+ 仅 Error::Network 退避重试（--retry，同 search 语义）
  3. 导航 → wait_load（eval 轮询 document.readyState == "complete"，尽力语义：预算耗尽/
-    eval 失败不报错，导航成功即成功包）→ html() → eval("location.href") 取 final_url
+    eval 失败不报错，导航成功即成功包）→（可选 wait_selector 就绪等待，ADR-010：显式
+    选择器出现后再继续，尽力语义）→ html() → eval("location.href") 取 final_url →
+    eval(responseStatus) 取 http_status（ADR-010：PerformanceNavigationTiming，尽力语义）
  4. 提取：extract_main_text（article/main 回退 body，剥噪音容器，max_chars 截断，
     text=false 跳过）+ extract_fields（JSON-LD → meta → DOM，allowlist，缺失缺省）
  5. 组装 FetchedPage{url, fetched_at, text, extracted, elapsed_ms, chars, truncated,
-    final_url} → output::fetch_success 序列化（fetch 包，schema v1 sibling）
+    final_url, http_status} → output::fetch_success 序列化（fetch 包，schema v1 sibling）
 ```
 
 ### 6.3 领域模型（`domain.rs`）
@@ -374,7 +377,7 @@ pub trait SearchProvider: Send + Sync {
   "fetched_at": "2026-08-01T08:00:00Z",
   "text": "清洗后的正文…",
   "extracted": { "price": "1299.00", "rating": 4.6, "currency": "CNY" },
-  "meta": { "elapsed_ms": 1200, "chars": 18423, "truncated": false, "final_url": "https://example.com/…" }
+  "meta": { "elapsed_ms": 1200, "chars": 18423, "truncated": false, "final_url": "https://example.com/…", "http_status": 200 }
 }
 ```
 
@@ -382,8 +385,11 @@ pub trait SearchProvider: Send + Sync {
 - `extracted`：allowlist 字段（title/author/published_at/price/currency/rating/rating_max/
   reviews_count），缺失字段缺省、绝不编造；值保留 JSON 原生类型
 - `meta.final_url`：重定向落地页（`eval("location.href")`）
-- 已知行为：HTTP 4xx/5xx/验证码/404 页导航成功即成功包（正文可能为空或错误页文本），
-  v1 不检测 HTTP 状态码；SPA/懒加载内容可能缺失（尽力语义）
+- `meta.http_status`：目标页 HTTP 状态码（ADR-010，尽力语义：`PerformanceNavigationTiming
+  .responseStatus`，Firefox < 105 / data: URL 为 null；4xx/5xx/404 仍为成功包，agent 判定）
+- 已知行为：HTTP 4xx/5xx/验证码/404 页导航成功即成功包（正文可能为空或错误页文本，状态码
+  见 `meta.http_status`）；SPA/懒加载内容可能缺失（可传 `wait_selector` 等待内容渲染，
+  ADR-010，尽力语义）
 
 版本策略：`schema_version` 主版本号，字段**只增不改**；破坏性变更 bump 主版本（agent 端
 显式校验并告警）。新增字段对旧 agent 无感。

@@ -39,7 +39,8 @@ fn run_cli() -> ExitCode {
                 extract,
                 max_chars,
                 no_text,
-            } => fetch_main(url, extract, *max_chars, *no_text, &cli),
+                wait_selector,
+            } => fetch_main(url, extract, *max_chars, *no_text, wait_selector, &cli),
             #[cfg(feature = "mcp")]
             Command::Mcp {
                 idle_timeout,
@@ -157,12 +158,14 @@ fn fetch_main(
     extract: &[cli::ExtractFieldArg],
     max_chars: usize,
     no_text: bool,
+    wait_selector: &Option<String>,
     cli: &Cli,
 ) -> ExitCode {
     let config = app::FetchConfig::new(url.to_owned(), cli.browser.to_kind())
         .with_extract(extract.iter().map(|e| e.to_domain()).collect())
         .with_max_chars(max_chars)
         .with_text(!no_text)
+        .with_wait_selector(wait_selector.clone())
         .with_timeout(std::time::Duration::from_secs(cli.timeout))
         .with_retry(cli.retry)
         .with_screenshot(cli.screenshot.clone())

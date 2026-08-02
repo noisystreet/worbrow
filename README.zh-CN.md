@@ -54,7 +54,7 @@ cargo build --release
 
 以 MCP stdio server 运行 `worbrow mcp`，向 MCP 客户端暴露工具：
 - `web_search`（query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache/compact）
-- `fetch_page`（url/browser/timeout/max_chars/extract/text/retry：抓取**显式传入**的 URL，
+- `fetch_page`（url/browser/timeout/max_chars/extract/text/wait_selector/retry：抓取**显式传入**的 URL，
   返回清洗正文与可选结构化字段）
 - `list_engines`（列出可用引擎）、`doctor`（环境自检：浏览器二进制/版本/引擎注册表）
 
@@ -89,9 +89,12 @@ worbrow fetch https://example.com --json --extract price,rating
 - **闭环用法**：把 `web_search` 结果里的 `results[i].url` 显式传给 `fetch_page`
   ——「搜到链接 → 读内容 → 比字段」一步到位；**绝不自动跟随搜索结果**（只抓显式 URL）
 - **参数**：`--max-chars <n>`（正文截断，默认 20000，`meta.truncated` 标记）、
-  `--no-text`（只要 `extracted`，省 token）、`--extract a,b`（allowlist，非法值 exit 2）
-- **已知行为**：HTTP 4xx/5xx/验证码/404 页导航成功即成功包（正文可能为空，v1 不检测
-  HTTP 状态码）；`meta.final_url` 记录重定向落地页；SPA/懒加载内容可能缺失
+  `--no-text`（只要 `extracted`，省 token）、`--extract a,b`（allowlist，非法值 exit 2）、
+  `--wait-selector <css>`（SPA：该选择器出现后再取正文，尽力语义）
+- **已知行为**：导航成功即成功包（正文可能为空）；`meta.http_status` 报告目标页 HTTP
+  状态码（尽力语义：`PerformanceNavigationTiming.responseStatus`，Firefox < 105 / data:
+  URL 为 null），4xx/5xx/404 不再被误报为成功；`meta.final_url` 记录重定向落地页；
+  SPA/懒加载内容可能缺失——传 `--wait-selector <css>` 等待内容渲染
 - **安全边界**：仅 `http/https`（缺 scheme 自动补 `https://`）；用真实浏览器导航，
   页面 JS 在浏览器内执行（等价自己点开链接）；**可访问本机/内网**（等价本机浏览器，
   防止被诱导抓内网请勿对不可信输入使用）；不做批量抓取，频率纪律仍适用
