@@ -78,8 +78,8 @@ fn search_works_from_external_crate() {
 
 #[test]
 fn defaults_are_reachable_from_root() {
-    // 默认引擎为降级链（Bing 首选，DuckDuckGo 兜底，roadmap-result-quality.md P3）
-    assert_eq!(DEFAULT_ENGINE, "bing,duckduckgo");
+    // 默认引擎为降级链（Bing 首选，DuckDuckGo/百度兜底，roadmap-result-quality.md P3）
+    assert_eq!(DEFAULT_ENGINE, "bing,duckduckgo,baidu");
     assert_eq!(DEFAULT_MAX_RESULTS, 10);
     assert_eq!(DEFAULT_TIMEOUT_SECS, 60);
 }
