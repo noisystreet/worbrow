@@ -133,9 +133,9 @@ async fn end_to_end_on_data_url() {
     let html = driver.html().await.expect("html 应成功");
     assert!(html.contains("hello"), "html 应包含 h1 内容: {html}");
 
-    // eval：ExecuteScript 读页面状态
+    // eval：ExecuteScript 读页面状态（Marionette 包装 `return (expr)`，需纯表达式、无分号）
     let title = driver
-        .eval("return document.querySelector('h1').textContent;")
+        .eval("document.querySelector('h1').textContent")
         .await
         .expect("eval 应成功");
     assert_eq!(title, "hello");
@@ -250,4 +250,36 @@ async fn pool_reuses_same_firefox_process() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     assert_eq!(firefox_count(), before, "池 Drop 后 Firefox 应被清理");
+}
+
+/// fetch 端到端（ADR-010）：本地 404 服务 → `meta.http_status` 正确上报。
+/// 极简 HTTP server（127.0.0.1 随机端口，接受一次请求返回 404），走真实
+/// Firefox 驱动 + `run_fetch` 全链路；404 页仍是成功包，状态码见 meta。
+#[tokio::test]
+#[ignore = "需要本机 Firefox"]
+async fn fetch_reports_http_status_from_local_404() {
+    use std::io::Write as _;
+
+    let _lock = PROC_LOCK.lock().await;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind 应成功");
+    let port = listener.local_addr().expect("local_addr 应成功").port();
+    std::thread::spawn(move || {
+        if let Ok((mut stream, _)) = listener.accept() {
+            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n");
+        }
+    });
+
+    let cfg = worbrow::FetchConfig::new(
+        format!("http://127.0.0.1:{port}/missing"),
+        BrowserKind::Firefox,
+    )
+    .with_timeout(Duration::from_secs(20));
+    let page = worbrow::run_fetch(cfg)
+        .await
+        .expect("fetch 应成功（404 页也是成功包）");
+    assert_eq!(
+        page.http_status,
+        Some(404),
+        "本地 404 应上报 http_status=404"
+    );
 }

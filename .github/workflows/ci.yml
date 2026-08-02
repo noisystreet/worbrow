@@ -51,6 +51,22 @@ jobs:
       - name: check (all features, --locked)
         run: cargo check --all-features --locked
 
+  smoke:
+    # 真机冒烟：系统预装 Firefox/Chrome 跑协议回归（tests/*_smoke.rs 的 #[ignore]
+    # 测试，--ignored 强制；仅访问 data:/about:/127.0.0.1，不依赖外网）。
+    # 浏览器进程计数断言要求串行：--test-threads=1（同一 test binary 内）。
+    name: real-browser smoke (firefox + chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: smoke (ignored real-browser tests)
+        run: cargo test --test firefox_smoke --test cdp_smoke -- --ignored --test-threads=1
+
   deb:
     name: deb package
     runs-on: ubuntu-latest
