@@ -19,6 +19,12 @@ jobs:
             suffix: ''
             ext: tar.gz
             deb: true
+          # musl 静态链接：不依赖 glibc，可在任何 Linux 发行版/容器直接运行（Rust CLI 标准发布形态）
+          - os: ubuntu-latest
+            asset: worbrow-linux-x86_64-musl
+            suffix: ''
+            ext: tar.gz
+            musl: true
           - os: macos-latest
             asset: worbrow-macos-arm64
             suffix: ''
@@ -35,15 +41,26 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: install musl target
+        if: matrix.musl
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
       # release 构建即完整性验证（--locked 锁定锁文件；全量门禁已由 PR 的 ci.yml 覆盖）
       - name: build release binary
-        run: cargo build --release --all-features --locked
+        run: cargo build --release --all-features --locked ${{ matrix.musl && '--target x86_64-unknown-linux-musl' || '' }}
 
       - name: stage binary
         shell: bash
         run: |
           mkdir -p dist
-          cp "target/release/worbrow${{ matrix.suffix }}" "dist/${{ matrix.asset }}"
+          BIN="target/release/worbrow${{ matrix.suffix }}"
+          if [ "${{ matrix.musl }}" = "true" ]; then BIN="target/x86_64-unknown-linux-musl/release/worbrow"; fi
+          cp "$BIN" "dist/${{ matrix.asset }}"
+          # 静态链接自证：musl 产物不应依赖动态库
+          if [ "${{ matrix.musl }}" = "true" ]; then file "$BIN"; fi
 
       - name: package (tar.gz)
         if: matrix.ext == 'tar.gz'

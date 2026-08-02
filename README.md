@@ -34,7 +34,7 @@ Backend status: `firefox` (Marionette, hand-written protocol) and `chrome` (CDP,
 
 ### Installation
 
-**Prebuilt binaries** are attached to every [GitHub Release](https://github.com/noisystreet/worbrow/releases) (`v*` tags): `worbrow-linux-x86_64.tar.gz`, `worbrow-macos-arm64.tar.gz`, `worbrow-windows-x86_64.zip`, each with a `SHA256SUMS` checksum. Debian/Ubuntu users can also install the release `.deb` (includes MCP support, `worbrow mcp`):
+**Prebuilt binaries** are attached to every [GitHub Release](https://github.com/noisystreet/worbrow/releases) (`v*` tags): `worbrow-linux-x86_64.tar.gz`, `worbrow-linux-x86_64-musl.tar.gz` (statically linked, runs on any Linux), `worbrow-macos-arm64.tar.gz`, `worbrow-windows-x86_64.zip`, each with a `SHA256SUMS` checksum. Debian/Ubuntu users can also install the release `.deb` (includes MCP support, `worbrow mcp`):
 
 ```bash
 sudo apt install ./worbrow_*.deb

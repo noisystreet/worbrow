@@ -38,7 +38,8 @@ cargo run -- fetch https://example.com --no-text --extract price        # 只要
 ### 安装
 
 每个 [GitHub Release](https://github.com/noisystreet/worbrow/releases)（`v*` tag）附赠**预编译二进制**：
-`worbrow-linux-x86_64.tar.gz`、`worbrow-macos-arm64.tar.gz`、`worbrow-windows-x86_64.zip`，附 `SHA256SUMS` 校验文件。
+`worbrow-linux-x86_64.tar.gz`、`worbrow-linux-x86_64-musl.tar.gz`（静态链接，任意 Linux 直接运行）、
+`worbrow-macos-arm64.tar.gz`、`worbrow-windows-x86_64.zip`，附 `SHA256SUMS` 校验文件。
 Debian/Ubuntu 用户也可安装发布版 `.deb`（含 MCP 支持，`worbrow mcp`）：
 
 ```bash
