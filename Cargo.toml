@@ -1,6 +1,6 @@
 [package]
 name = "worbrow"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 description = "Agent search CLI: drives local headless browsers (Chrome/Firefox, self-built CDP/Marionette) to search the web with a stable JSON contract; native MCP tools (web_search / fetch_page)"
 license = "MIT OR Apache-2.0"
