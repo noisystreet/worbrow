@@ -26,6 +26,15 @@ repos:
       - id: conventional-pre-commit
         stages: [commit-msg]
 
+  # 提交信息语言门禁：整条 message 禁 CJK（AGENTS.md "Commit conventions"）
+  - repo: local
+    hooks:
+      - id: check-commit-english
+        name: commit message must be in English
+        entry: scripts/check-commit-lang.sh
+        language: script
+        stages: [commit-msg]
+
   # Rust 质量门禁（仅改动 .rs 文件时触发；增量编译后开销可控）
   - repo: local
     hooks:

@@ -32,6 +32,11 @@ Hard constraints and verification entry points for agents (and humans) working i
 - New decisions are recorded as ADRs: append to `docs/adr/NNNN-title.md` (`docs/design.md` §4 is the index table;
   format follows the docs-style template).
 
+## Commit conventions
+
+- Commit messages follow Conventional Commits; the type is in English (`feat`/`fix`/`docs`/`chore`/`refactor`/..., enforced by pre-commit).
+- The description part is written in English. Applies to new commits only; history is never rewritten.
+
 ## Mandatory verification commands
 
 ```bash

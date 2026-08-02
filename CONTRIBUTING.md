@@ -15,7 +15,8 @@ pre-commit install --hook-type commit-msg   # Conventional Commits 校验
 ## 开发流程
 
 1. 先读 `docs/design.md`（架构与契约）与 `AGENTS.md`（硬约束）
-2. 改代码 → 本地验证（见下）→ 提交（Conventional Commits：`feat:` / `fix:` / `docs:` / `chore:`）
+2. 改代码 → 本地验证（见下）→ 提交（Conventional Commits：`feat:` / `fix:` / `docs:` / `chore:`，
+   **description 用英文**；历史提交不重写）
 3. 变更契约（JSON schema / 退出码）必须 bump `schema_version` 并记 ADR（追加到 `docs/adr/`）
 4. 变更**库公开面**（ADR-006：顶层 re-export 的类型/trait/常量）时：
    - 0.x 阶段破坏性变更（删/改名/字段私有化）须 bump minor 并记 CHANGELOG 迁移说明
