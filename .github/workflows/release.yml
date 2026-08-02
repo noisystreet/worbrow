@@ -86,7 +86,9 @@ jobs:
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: release-assets
+          # 每平台唯一 name：upload-artifact@v4 同名多 job 上传会互相覆盖，
+          # publish 侧用 pattern 下载全部合并
+          name: release-assets-${{ matrix.asset }}
           path: dist/
           if-no-files-found: error
 
@@ -97,7 +99,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: release-assets
+          pattern: release-assets-*
           path: release/
           merge-multiple: true
 
