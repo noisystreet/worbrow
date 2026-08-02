@@ -110,7 +110,7 @@ impl SearchProvider for Bing {
         if results.is_empty() {
             return Err(EngineFailure::new(
                 "no_results",
-                "Bing 页面结构未解析出任何结果（引擎改版或反爬）",
+                "Bing page yielded no results (engine layout changed or anti-bot)",
             ));
         }
         Ok(results)

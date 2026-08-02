@@ -24,7 +24,7 @@ pub fn resolve(name: &str) -> Result<Box<dyn SearchProvider>, Error> {
         "duckduckgo" => Ok(Box::new(DuckDuckGo)),
         "bing" => Ok(Box::new(Bing)),
         other => Err(Error::Cli(format!(
-            "未知引擎: {other}（可用: {}）",
+            "unknown engine: {other} (available: {})",
             AVAILABLE.join(", ")
         ))),
     }

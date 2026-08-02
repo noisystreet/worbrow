@@ -33,7 +33,7 @@ fn list_subcommand_lists_engines() {
 fn doctor_subcommand_exits_zero() {
     let (code, out) = run(&["doctor"]);
     assert_eq!(code, 0);
-    assert!(out.contains("引擎注册表"));
+    assert!(out.contains("engines:"));
     assert!(out.contains("chrome (CDP)"));
 }
 
@@ -65,7 +65,7 @@ fn unknown_engine_is_cli_error() {
         json["error"]["message"]
             .as_str()
             .unwrap()
-            .contains("未知引擎")
+            .contains("unknown engine")
     );
 }
 

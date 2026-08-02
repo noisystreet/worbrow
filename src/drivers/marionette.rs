@@ -105,7 +105,7 @@ impl MarionetteDriver {
             && version < 55
         {
             return Err(Error::Env(format!(
-                "Firefox 版本过低（{version} < 55），不支持 -marionette（二进制: {}）",
+                "Firefox version too old ({version} < 55), does not support -marionette (binary: {})",
                 binary.display()
             )));
         }
@@ -124,9 +124,12 @@ impl MarionetteDriver {
         // Firefox 自身的日志（Marionette/webrender 等）重定向丢弃：headless 下会走
         // stdout，污染输出契约管道（design.md §2）；诊断走截图/--dump-html 与 tracing
         cmd.stdout(Stdio::null()).stderr(Stdio::null());
-        let child = cmd
-            .spawn()
-            .map_err(|e| Error::Env(format!("启动 Firefox（{}）失败: {e}", binary.display())))?;
+        let child = cmd.spawn().map_err(|e| {
+            Error::Env(format!(
+                "failed to launch Firefox ({}): {e}",
+                binary.display()
+            ))
+        })?;
         // child 尚未进入 Inner：guard 保证任何错误/取消路径都 start_kill，
         // 否则 tokio::process::Child 的 Drop 不 kill → 残留 Firefox（design.md §8）
         let child = ChildGuard::new(child);
@@ -137,7 +140,7 @@ impl MarionetteDriver {
             Ok(Err(e)) => return Err(e),
             Err(_) => {
                 return Err(Error::Timeout(
-                    "等待 Firefox Marionette 端口超时（firefox 启动失败或端口被占用）".into(),
+                    "timed out waiting for Firefox Marionette port (Firefox failed to start or port busy)".into(),
                 ));
             }
         };
@@ -169,7 +172,7 @@ impl MarionetteDriver {
             )
             .await
         {
-            tracing::warn!("SetTimeouts 失败（将使用 Firefox 默认值）: {e}");
+            tracing::warn!("SetTimeouts failed (falling back to Firefox defaults): {e}");
         }
 
         Ok(Box::new(MarionetteDriver {
@@ -208,7 +211,9 @@ impl BrowserDriver for MarionetteDriver {
                 return Ok(());
             }
             if Instant::now() >= deadline {
-                return Err(Error::Timeout(format!("等待选择器超时: {selector}")));
+                return Err(Error::Timeout(format!(
+                    "timeout waiting for selector: {selector}"
+                )));
             }
             tokio::time::sleep(POLL_INTERVAL).await;
         }
@@ -223,7 +228,7 @@ impl BrowserDriver for MarionetteDriver {
         r.get("value")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string())
-            .ok_or_else(|| Error::Network("GetPageSource 响应缺少 value".into()))
+            .ok_or_else(|| Error::Network("GetPageSource response missing value".into()))
     }
 
     async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error> {
@@ -249,12 +254,16 @@ impl BrowserDriver for MarionetteDriver {
         let b64 = r
             .get("value")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Network("TakeScreenshot 响应缺少 value".into()))?;
+            .ok_or_else(|| Error::Network("TakeScreenshot response missing value".into()))?;
         let png = base64::engine::general_purpose::STANDARD
             .decode(b64)
-            .map_err(|e| Error::Network(format!("截图 base64 解码失败: {e}")))?;
-        std::fs::write(path, png)
-            .map_err(|e| Error::Internal(format!("写入截图失败（{}）: {e}", path.display())))
+            .map_err(|e| Error::Network(format!("failed to decode screenshot base64: {e}")))?;
+        std::fs::write(path, png).map_err(|e| {
+            Error::Internal(format!(
+                "failed to write screenshot ({}): {e}",
+                path.display()
+            ))
+        })
     }
 }
 
@@ -271,7 +280,7 @@ impl MarionetteTransport {
         let frame = read_frame(&mut stream).await?;
         if frame.get("applicationType").is_none() {
             return Err(Error::Network(format!(
-                "Marionette 握手失败（非 hello 帧）: {frame}"
+                "Marionette handshake failed (not a hello frame): {frame}"
             )));
         }
         Ok(Self {
@@ -332,12 +341,15 @@ async fn read_frame(stream: &mut TcpStream) -> Result<Value, Error> {
         let b = stream
             .read_u8()
             .await
-            .map_err(|e| Error::Network(format!("读取帧长度失败: {e}")))?;
+            .map_err(|e| Error::Network(format!("failed to read frame length: {e}")))?;
         if b == b':' {
             break;
         }
         if !b.is_ascii_digit() || len_bytes.len() > 10 {
-            return Err(Error::Network(format!("帧长度前缀非法: {:?}", len_bytes)));
+            return Err(Error::Network(format!(
+                "invalid frame length prefix: {:?}",
+                len_bytes
+            )));
         }
         len_bytes.push(b);
     }
@@ -346,7 +358,7 @@ async fn read_frame(stream: &mut TcpStream) -> Result<Value, Error> {
         .and_then(|s| s.parse().ok())
         .ok_or_else(|| {
             Error::Network(format!(
-                "帧长度解析失败: {:?}",
+                "failed to parse frame length: {:?}",
                 String::from_utf8_lossy(&len_bytes)
             ))
         })?;
@@ -354,21 +366,23 @@ async fn read_frame(stream: &mut TcpStream) -> Result<Value, Error> {
     stream
         .read_exact(&mut buf)
         .await
-        .map_err(|e| Error::Network(format!("读取帧失败: {e}")))?;
-    serde_json::from_slice(&buf).map_err(|e| Error::Network(format!("帧 JSON 解析失败: {e}")))
+        .map_err(|e| Error::Network(format!("failed to read frame: {e}")))?;
+    serde_json::from_slice(&buf)
+        .map_err(|e| Error::Network(format!("failed to parse frame JSON: {e}")))
 }
 
 /// 写入一帧：`<ASCII十进制长度>:<JSON>`。
 async fn write_frame(stream: &mut TcpStream, v: &Value) -> Result<(), Error> {
-    let bytes = serde_json::to_vec(v).map_err(|e| Error::Network(format!("帧序列化失败: {e}")))?;
+    let bytes = serde_json::to_vec(v)
+        .map_err(|e| Error::Network(format!("failed to serialize frame: {e}")))?;
     stream
         .write_all(format!("{}:", bytes.len()).as_bytes())
         .await
-        .map_err(|e| Error::Network(format!("写入帧长度失败: {e}")))?;
+        .map_err(|e| Error::Network(format!("failed to write frame length: {e}")))?;
     stream
         .write_all(&bytes)
         .await
-        .map_err(|e| Error::Network(format!("写入帧失败: {e}")))
+        .map_err(|e| Error::Network(format!("failed to write frame: {e}")))
 }
 
 /// 轮询 TCP 连接直到 Marionette 端口就绪。
@@ -384,11 +398,11 @@ async fn connect_retry(addr: SocketAddr) -> Result<MarionetteTransport, Error> {
 /// 分配一个随机空闲端口（监听后立即释放，供 user.js 写入）。
 fn pick_free_port() -> Result<u16, Error> {
     let listener = std::net::TcpListener::bind(("127.0.0.1", 0))
-        .map_err(|e| Error::Env(format!("分配随机端口失败: {e}")))?;
+        .map_err(|e| Error::Env(format!("failed to allocate a random port: {e}")))?;
     listener
         .local_addr()
         .map(|a| a.port())
-        .map_err(|e| Error::Env(format!("读取随机端口失败: {e}")))
+        .map_err(|e| Error::Env(format!("failed to read random port: {e}")))
 }
 
 /// 创建独立临时 profile，写入随机 `marionette.port`（design.md §10.1）。
@@ -401,7 +415,7 @@ fn create_profile(port: u16) -> Result<TempDir, Error> {
         dir.path().join("user.js"),
         format!("user_pref(\"marionette.port\", {port});\n"),
     )
-    .map_err(|e| Error::Env(format!("写入 profile user.js 失败: {e}")))?;
+    .map_err(|e| Error::Env(format!("failed to write profile user.js: {e}")))?;
     Ok(dir)
 }
 

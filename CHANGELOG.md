@@ -4,6 +4,12 @@
 
 ## [Unreleased]
 
+### Changed
+
+- **界面文案英文化（L3）**：CLI `--help`/子命令描述、错误消息（`error.message`）、
+  MCP 工具与参数描述、`doctor` 输出全部改为英文，便于国际用户与 agent 消费；
+  退出码/JSON 契约/`schema_version` 零变化（仅 message 文本，字段未增改）
+
 ## [0.2.0] - 2026-08-01
 
 ### Added

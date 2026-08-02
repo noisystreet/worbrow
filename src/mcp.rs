@@ -175,99 +175,102 @@ impl SearchServer {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct SearchParams {
     /// 搜索关键词（必填，1-512 字符）
-    #[schemars(description = "要搜索的关键词（1-512 字符）")]
+    #[schemars(description = "search query (1-512 characters)")]
     pub query: String,
     /// 搜索引擎（逗号分隔 = 降级尝试顺序，如 "bing,duckduckgo"）
     #[schemars(
-        description = "搜索引擎（当前支持: duckduckgo/bing；逗号分隔为降级尝试顺序，如 bing,duckduckgo）",
+        description = "search engine (currently supported: duckduckgo/bing; comma-separated fallback order, e.g. bing,duckduckgo)",
         default = "default_engine"
     )]
     #[serde(default = "default_engine")]
     pub engine: String,
     /// 浏览器后端
     #[schemars(
-        description = "浏览器后端（fake=测试/无需浏览器，firefox=本机 Firefox，chrome=Chrome/Edge）",
+        description = "browser backend (fake=testing/no browser needed, firefox=local Firefox, chrome=Chrome/Edge)",
         default = "default_browser"
     )]
     #[serde(default = "default_browser")]
     pub browser: String,
     /// 返回条数上限
     #[schemars(
-        description = "返回结果条数上限（默认 10）",
+        description = "max number of results (default 10)",
         default = "default_max_results"
     )]
     #[serde(default = "default_max_results")]
     pub max_results: usize,
     /// 结果语言（如 zh-hans，Bing setlang）
-    #[schemars(description = "结果语言（可选，如 zh-hans）", default = "default_lang")]
+    #[schemars(
+        description = "result language (optional, e.g. zh-hans)",
+        default = "default_lang"
+    )]
     #[serde(default = "default_lang")]
     pub lang: Option<String>,
     /// 结果地域/市场（如 zh-CN，Bing mkt / DDG kl）
     #[schemars(
-        description = "结果地域/市场（可选，如 zh-CN）",
+        description = "result region/market (optional, e.g. zh-CN)",
         default = "default_region"
     )]
     #[serde(default = "default_region")]
     pub region: Option<String>,
     /// 翻页聚合页数（>1 时跨页去重合并）
     #[schemars(
-        description = "翻页聚合页数（默认 1 = 仅首页）",
+        description = "pages to aggregate (default 1 = first page only)",
         default = "default_pages"
     )]
     #[serde(default = "default_pages")]
     pub pages: usize,
     /// 时间过滤窗口（day|week|month|year）
     #[schemars(
-        description = "时间过滤窗口（可选: day/week/month/year；缺省 = 不限时间）",
+        description = "freshness window (optional: day/week/month/year; default = any time)",
         default = "default_none"
     )]
     #[serde(default = "default_none")]
     pub freshness: Option<String>,
     /// 安全搜索级别（off|moderate|strict）
     #[schemars(
-        description = "安全搜索级别（可选: off/moderate/strict；缺省 = 引擎默认）",
+        description = "safe search level (optional: off/moderate/strict; default = engine default)",
         default = "default_none"
     )]
     #[serde(default = "default_none")]
     pub safesearch: Option<String>,
     /// 站点过滤（query 级 site: 语法）
     #[schemars(
-        description = "站点过滤（可选，如 doc.rust-lang.org；query 级 site: 语法）",
+        description = "site filter (optional, e.g. doc.rust-lang.org; query-level site: syntax)",
         default = "default_none"
     )]
     #[serde(default = "default_none")]
     pub site: Option<String>,
     /// 文件类型过滤（query 级 filetype: 语法）
     #[schemars(
-        description = "文件类型过滤（可选，如 pdf；query 级 filetype: 语法）",
+        description = "file type filter (optional, e.g. pdf; query-level filetype: syntax)",
         default = "default_none"
     )]
     #[serde(default = "default_none")]
     pub filetype: Option<String>,
     /// 全流程硬超时（秒）
     #[schemars(
-        description = "全流程硬超时秒数（默认 60）",
+        description = "hard timeout in seconds (default 60)",
         default = "default_timeout_secs"
     )]
     #[serde(default = "default_timeout_secs")]
     pub timeout: u64,
     /// 瞬时网络错误重试次数（指数退避，封顶）
     #[schemars(
-        description = "瞬时网络错误重试次数（默认 0 = 不重试；仅网络错误触发）",
+        description = "retry count for transient network errors (default 0 = no retry; only network errors trigger)",
         default = "default_retry"
     )]
     #[serde(default = "default_retry")]
     pub retry: usize,
     /// 是否绕过短 TTL 结果缓存（需要新鲜结果时置 true）
     #[schemars(
-        description = "是否绕过短 TTL 结果缓存（默认 false = 命中缓存直接返回）",
+        description = "bypass short-TTL result cache (default false = serve from cache)",
         default = "default_no_cache"
     )]
     #[serde(default = "default_no_cache")]
     pub no_cache: bool,
     /// 精简输出模式（仅 rank/title/url，省上下文 token）
     #[schemars(
-        description = "精简输出模式（默认 false；true = 结果仅含 rank/title/url）",
+        description = "compact output (default false; true = results contain only rank/title/url)",
         default = "default_compact"
     )]
     #[serde(default = "default_compact")]
@@ -278,46 +281,48 @@ pub struct SearchParams {
 #[derive(Debug, serde::Deserialize, schemars::JsonSchema)]
 pub struct FetchParams {
     /// 目标 URL（http/https；缺失 scheme 自动补 https://）
-    #[schemars(description = "要抓取的页面 URL（http/https；缺失 scheme 自动补 https://）")]
+    #[schemars(
+        description = "page URL to fetch (http/https; missing scheme defaults to https://)"
+    )]
     pub url: String,
     /// 浏览器后端
     #[schemars(
-        description = "浏览器后端（fake=测试/无需浏览器，firefox=本机 Firefox，chrome=Chrome/Edge）",
+        description = "browser backend (fake=testing/no browser needed, firefox=local Firefox, chrome=Chrome/Edge)",
         default = "default_browser"
     )]
     #[serde(default = "default_browser")]
     pub browser: String,
     /// 正文截断上限（字符）
     #[schemars(
-        description = "正文截断上限字符数（默认 20000）",
+        description = "max chars for truncated body text (default 20000)",
         default = "default_max_chars"
     )]
     #[serde(default = "default_max_chars")]
     pub max_chars: usize,
     /// 结构化字段提取（allowlist）
     #[schemars(
-        description = "结构化字段提取列表（可选，如 [\"price\",\"rating\"]；可用: title/author/published_at/price/currency/rating/rating_max/reviews_count）",
+        description = "extract structured fields (optional, e.g. [\"price\",\"rating\"]; supported: title/author/published_at/price/currency/rating/rating_max/reviews_count)",
         default = "default_none_vec"
     )]
     #[serde(default = "default_none_vec")]
     pub extract: Option<Vec<String>>,
     /// 是否返回正文文本
     #[schemars(
-        description = "是否返回清洗后正文（默认 true；false = 只返回 extracted 字段，省 token）",
+        description = "return cleaned body text (default true; false = only extracted fields, saves tokens)",
         default = "default_text"
     )]
     #[serde(default = "default_text")]
     pub text: bool,
     /// 全流程硬超时（秒）
     #[schemars(
-        description = "全流程硬超时秒数（默认 60）",
+        description = "hard timeout in seconds (default 60)",
         default = "default_timeout_secs"
     )]
     #[serde(default = "default_timeout_secs")]
     pub timeout: u64,
     /// 瞬时网络错误重试次数（指数退避，封顶）
     #[schemars(
-        description = "瞬时网络错误重试次数（默认 0 = 不重试；仅网络错误触发）",
+        description = "retry count for transient network errors (default 0 = no retry; only network errors trigger)",
         default = "default_retry"
     )]
     #[serde(default = "default_retry")]
@@ -385,7 +390,7 @@ impl SearchServer {
     fn parse_browser(s: &str) -> Result<BrowserKind, Error> {
         BrowserKind::from_arg(s).ok_or_else(|| {
             Error::Cli(format!(
-                "不支持的浏览器后端: {s}（支持 fake/firefox/chrome/edge/chromium）"
+                "unsupported browser backend: {s} (supported: fake/firefox/chrome/edge/chromium)"
             ))
         })
     }
@@ -396,7 +401,7 @@ impl SearchServer {
             None => Ok(None),
             Some(v) => Freshness::from_arg(v).map(Some).ok_or_else(|| {
                 Error::Cli(format!(
-                    "不支持的 freshness: {v}（支持 day/week/month/year）"
+                    "unsupported freshness: {v} (supported: day/week/month/year)"
                 ))
             }),
         }
@@ -408,7 +413,7 @@ impl SearchServer {
             None => Ok(None),
             Some(v) => SafesearchLevel::from_arg(v).map(Some).ok_or_else(|| {
                 Error::Cli(format!(
-                    "不支持的 safesearch: {v}（支持 off/moderate/strict）"
+                    "unsupported safesearch: {v} (supported: off/moderate/strict)"
                 ))
             }),
         }
@@ -423,7 +428,7 @@ impl SearchServer {
         for s in list {
             let f = ExtractField::from_arg(s).ok_or_else(|| {
                 Error::Cli(format!(
-                    "不支持的提取字段: {s}（支持 title/author/published_at/price/currency/rating/rating_max/reviews_count）"
+                    "unsupported extract field: {s} (supported: title/author/published_at/price/currency/rating/rating_max/reviews_count)"
                 ))
             })?;
             fields.push(f);
@@ -444,7 +449,7 @@ impl SearchServer {
     /// （`meta.cached=true`）；`no_cache=true` 绕过缓存（roadmap.md「网络重试与缓存」）。
     #[tool(
         name = "web_search",
-        description = "驱动本机 headless 浏览器执行搜索引擎搜索，返回稳定 JSON 契约（schema_version=1 的成功/失败包）"
+        description = "Search the web via local headless browsers, returning a stable JSON contract (schema_version=1 success/failure packages)"
     )]
     async fn web_search(&self, Parameters(params): Parameters<SearchParams>) -> CallToolResult {
         // 参数解析失败 → 用户可见的 error content（而非协议错误）
@@ -539,7 +544,7 @@ impl SearchServer {
     /// （JSON-LD/meta），正文可经 `text=false` 关闭（省 token）。
     #[tool(
         name = "fetch_page",
-        description = "抓取显式指定的 URL，返回清洗后的正文与可选结构化字段（schema_version=1 成功包）；只访问显式传入的 URL，绝不自动跟随搜索结果"
+        description = "Fetch an explicitly specified URL, returning cleaned body text and optional structured fields (schema_version=1 success package); only fetches URLs passed explicitly, never follows search results automatically"
     )]
     async fn fetch_page(&self, Parameters(params): Parameters<FetchParams>) -> CallToolResult {
         let browser = match Self::parse_browser(&params.browser) {
@@ -588,7 +593,7 @@ impl SearchServer {
     /// 列出可用引擎（agent 自查引擎名/降级顺序用，无需读错误码）。
     #[tool(
         name = "list_engines",
-        description = "列出当前可用的搜索引擎（供拼接 engine 参数与降级链，如 bing,duckduckgo）"
+        description = "List available search engines (for building engine parameter and fallback chains, e.g. bing,duckduckgo)"
     )]
     async fn list_engines(&self) -> CallToolResult {
         let body = serde_json::to_string_pretty(&crate::engines::AVAILABLE)
@@ -599,7 +604,7 @@ impl SearchServer {
     /// 环境自检（浏览器二进制/引擎注册表），agent 排查环境问题无需读错误码。
     #[tool(
         name = "doctor",
-        description = "检查环境：可用引擎、浏览器后端二进制与版本（Chrome ≥109 / Firefox ≥55）"
+        description = "Check environment: available engines, browser backend binaries and versions (Chrome >=109 / Firefox >=55)"
     )]
     async fn doctor(&self) -> CallToolResult {
         let report = app::DoctorReport::collect();
@@ -621,9 +626,9 @@ fn format_outcome(outcome: &app::Outcome, compact: bool) -> String {
 impl ServerHandler for SearchServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
-            "通过驱动本机 headless 浏览器执行搜索引擎搜索与页面抓取。\
-             web_search 返回 JSON 文本：成功包含 results/meta，失败包含 error（code/message），\
-             schema_version=1；fetch_page 抓取显式传入的 URL，返回清洗正文与可选结构化字段。",
+            "Drives local headless browsers to run search-engine searches and page fetches. \
+             web_search returns JSON text: success contains results/meta, failure contains error (code/message), \
+             schema_version=1; fetch_page fetches an explicit URL and returns cleaned body text plus optional structured fields.",
         )
     }
 }
@@ -707,7 +712,7 @@ pub async fn serve_stdio(idle: Option<Duration>, pool: Option<PoolConfig>) -> Re
     let running = loop {
         tokio::select! {
             r = &mut serve_fut => {
-                break r.map_err(|e| Error::Internal(format!("MCP server 初始化失败: {e}")))?;
+                break r.map_err(|e| Error::Internal(format!("MCP server initialization failed: {e}")))?;
             }
             _ = tokio::time::sleep(IDLE_POLL) => {
                 if idle_expired(&last_activity, idle) {
@@ -722,14 +727,14 @@ pub async fn serve_stdio(idle: Option<Duration>, pool: Option<PoolConfig>) -> Re
     loop {
         tokio::select! {
             r = &mut waiting => {
-                r.map_err(|e| Error::Internal(format!("MCP server 运行失败: {e}")))?;
+                r.map_err(|e| Error::Internal(format!("MCP server runtime error: {e}")))?;
                 return Ok(());
             }
             _ = tokio::time::sleep(IDLE_POLL) => {
                 if idle_expired(&last_activity, idle) {
                     tracing::info!(
                         idle_secs = idle.as_secs(),
-                        "MCP server 空闲超时，自动退出"
+                        "MCP server idle timeout, exiting"
                     );
                     return Ok(());
                 }
@@ -750,11 +755,11 @@ async fn serve_until_eof(server: SearchServer) -> Result<(), Error> {
     let running = server
         .serve(rmcp::transport::stdio())
         .await
-        .map_err(|e| Error::Internal(format!("MCP server 初始化失败: {e}")))?;
+        .map_err(|e| Error::Internal(format!("MCP server initialization failed: {e}")))?;
     running
         .waiting()
         .await
-        .map_err(|e| Error::Internal(format!("MCP server 运行失败: {e}")))?;
+        .map_err(|e| Error::Internal(format!("MCP server runtime error: {e}")))?;
     Ok(())
 }
 
