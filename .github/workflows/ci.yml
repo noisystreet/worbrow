@@ -38,13 +38,17 @@ jobs:
         uses: bnjbvr/cargo-machete@main
 
   compile:
-    # 跨平台编译验证：与 release.yml 的发布矩阵对齐（ubuntu/macos/windows），
-    # 保证 tag 发布时三平台构建可直接成功（PR 阶段即暴露编译级问题）
-    name: compile (${{ matrix.os }})
+    # 跨平台编译验证：与 release.yml 的发布矩阵对齐（ubuntu gnu/musl + macos + windows），
+    # 保证 tag 发布时各平台构建可直接成功（PR 阶段即暴露编译级问题）
+    name: compile (${{ matrix.os }}${{ matrix.musl && ' (musl)' || '' }})
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - { os: ubuntu-latest, musl: false }
+          - { os: ubuntu-latest, musl: true }
+          - { os: macos-latest, musl: false }
+          - { os: windows-latest, musl: false }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -53,8 +57,15 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
+      - name: install musl target
+        if: matrix.musl
+        run: |
+          rustup target add x86_64-unknown-linux-musl
+          sudo apt-get update
+          sudo apt-get install -y musl-tools
+
       - name: check (all features, --locked)
-        run: cargo check --all-features --locked
+        run: cargo check --all-features --locked ${{ matrix.musl && '--target x86_64-unknown-linux-musl' || '' }}
 
   msrv:
     # 验证声明的最低 Rust 版本（Cargo.toml rust-version = 1.97）确实可编译
