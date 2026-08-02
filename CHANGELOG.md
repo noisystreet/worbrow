@@ -11,8 +11,15 @@ This file records user-visible changes (Keep a Changelog style).
   离题，自动尝试下一引擎。修复 Bing 对空格分隔多词中文查询锚定首强实体的场景
   （如「中国基金 数据 网站 天天基金网 蛋卷基金 净值查询」恒返回中国维基/百科，
   数量与类型均正常但完全离题），该类结果此前不会被既有数量/占比门禁拦截
-- **默认引擎改为降级链 `bing,duckduckgo`**（CLI 与 MCP 一致）：Bing 首选满足质量
-  门禁时仍只用 Bing；离题/低质/低产/验证码时自动尝试 DuckDuckGo
+- **默认引擎改为降级链 `bing,duckduckgo,baidu`**（CLI 与 MCP 一致）：Bing 首选满足质量
+  门禁时仍只用 Bing；离题/低质/低产/验证码时自动尝试 DuckDuckGo，中文长尾再兜底百度
+
+### Added
+
+- **百度引擎（P1，design.md §13 原规划目标）**：新增 `worbrow --engine baidu`（`worbrow list`
+  可见）——URL 直访 `baidu.com/s?wd=`，解析 `div.result` 容器；真实目标 URL 取自容器
+  `mu` 属性（标题 href 为 `baidu.com/link?url=` 跳转链，`url_resolved=true`），`mu` 缺失
+  回退保留跳转链 URL；百度安全验证页特征词纳入验证码启发式，CN 网络直连无验证码
 
 ## [0.2.1] - 2026-08-02
 

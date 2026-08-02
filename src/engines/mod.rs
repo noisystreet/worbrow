@@ -7,22 +7,25 @@
 //! 公开面仅 `resolve`/`AVAILABLE`；具体引擎实现（bing/duckduckgo）为内部细节，
 //! 不属稳定 API（ADR-006）。
 
+mod baidu;
 mod bing;
 mod duckduckgo;
 
 use crate::error::Error;
 use crate::ports::SearchProvider;
+use baidu::Baidu;
 use bing::Bing;
 use duckduckgo::DuckDuckGo;
 
 /// 可用引擎列表（`worbrow list` 输出）。
-pub const AVAILABLE: &[&str] = &["duckduckgo", "bing"];
+pub const AVAILABLE: &[&str] = &["duckduckgo", "bing", "baidu"];
 
 /// 引擎注册表：名称 → `Box<dyn SearchProvider>`。
 pub fn resolve(name: &str) -> Result<Box<dyn SearchProvider>, Error> {
     match name {
         "duckduckgo" => Ok(Box::new(DuckDuckGo)),
         "bing" => Ok(Box::new(Bing)),
+        "baidu" => Ok(Box::new(Baidu)),
         other => Err(Error::Cli(format!(
             "unknown engine: {other} (available: {})",
             AVAILABLE.join(", ")
