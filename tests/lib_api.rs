@@ -69,7 +69,7 @@ fn search_works_from_external_crate() {
     // 顶层 `search` 同步入口
     let outcome = worbrow::search(config).expect("fake 驱动 + bing fixture 应成功");
     assert!(!outcome.results.is_empty());
-    assert_eq!(outcome.meta.engine, DEFAULT_ENGINE);
+    assert_eq!(outcome.meta.engine, "bing", "降级链首选引擎满足时即采用");
     assert_eq!(outcome.meta.result_count, outcome.results.len());
     assert!(outcome.meta.engine_error.is_none());
     // 排名从 1 开始
@@ -78,7 +78,8 @@ fn search_works_from_external_crate() {
 
 #[test]
 fn defaults_are_reachable_from_root() {
-    assert_eq!(DEFAULT_ENGINE, "bing");
+    // 默认引擎为降级链（Bing 首选，DuckDuckGo 兜底，roadmap-result-quality.md P3）
+    assert_eq!(DEFAULT_ENGINE, "bing,duckduckgo");
     assert_eq!(DEFAULT_MAX_RESULTS, 10);
     assert_eq!(DEFAULT_TIMEOUT_SECS, 60);
 }

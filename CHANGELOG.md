@@ -4,6 +4,16 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+### Changed
+
+- **相关性门禁（P3，roadmap-result-quality.md）**：降级判定叠加查询词重叠检查——当
+  结果集（标题/摘要/域名）与查询显著词（长度 ≥3 的多词查询）**零词面重叠**时判为
+  离题，自动尝试下一引擎。修复 Bing 对空格分隔多词中文查询锚定首强实体的场景
+  （如「中国基金 数据 网站 天天基金网 蛋卷基金 净值查询」恒返回中国维基/百科，
+  数量与类型均正常但完全离题），该类结果此前不会被既有数量/占比门禁拦截
+- **默认引擎改为降级链 `bing,duckduckgo`**（CLI 与 MCP 一致）：Bing 首选满足质量
+  门禁时仍只用 Bing；离题/低质/低产/验证码时自动尝试 DuckDuckGo
+
 ## [0.2.1] - 2026-08-02
 
 ### Added

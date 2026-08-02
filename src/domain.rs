@@ -6,7 +6,9 @@ use chrono::{DateTime, Utc};
 use serde::Serialize;
 
 /// 默认引擎（CLI 与 MCP 共用，design.md §6.1）。
-pub const DEFAULT_ENGINE: &str = "bing";
+/// 逗号分隔 = 降级尝试顺序（首选在前）：Bing 冷会话/多词中文查询可能返回离题或
+/// 劣化结果（roadmap-result-quality.md P3），质量门禁不通过时自动尝试 DuckDuckGo。
+pub const DEFAULT_ENGINE: &str = "bing,duckduckgo";
 /// 默认浏览器后端（CLI 与 MCP 共用）。
 pub const DEFAULT_BROWSER: &str = "firefox";
 /// 默认返回条数上限。

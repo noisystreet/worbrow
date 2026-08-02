@@ -19,7 +19,7 @@ Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，F
 ```bash
 cargo run -- list                    # 列出可用引擎
 cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/后端状态）
-cargo run -- "rust 异步运行时" --json   # 默认引擎 bing、默认超时 60s
+cargo run -- "rust 异步运行时" --json   # 默认引擎 bing→duckduckgo 降级链、默认超时 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # 翻页聚合 + 语言/地域
 cargo run -- "rust" --freshness week --safesearch strict                       # 时间过滤 + 安全搜索
