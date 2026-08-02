@@ -143,6 +143,8 @@ pub struct FetchMeta<'a> {
     pub truncated: bool,
     /// 重定向落地页（导航后 `location.href`）。
     pub final_url: Option<&'a str>,
+    /// 目标页 HTTP 状态码（尽力语义；Firefox < 105 / data: URL 等为 `null`）。
+    pub http_status: Option<u16>,
 }
 
 /// 抓取成功包（`--json` 时 stdout）。
@@ -158,6 +160,7 @@ pub fn fetch_success(page: &FetchedPage) -> String {
             chars: page.chars,
             truncated: page.truncated,
             final_url: page.final_url.as_deref(),
+            http_status: page.http_status,
         },
     })
     .expect("序列化抓取成功包不应失败")
@@ -178,6 +181,9 @@ pub fn fetch_success_text(page: &FetchedPage) -> String {
         && final_url != &page.url
     {
         let _ = writeln!(out, "redirected: {final_url}");
+    }
+    if let Some(status) = page.http_status {
+        let _ = writeln!(out, "http: {status}");
     }
     if !page.extracted.is_empty() {
         let _ = writeln!(out, "extracted:");
@@ -327,6 +333,8 @@ mod tests {
     }
 
     /// fetch 成功包：schema_version/url/text/extracted/meta 形状完整。
+    // 测试断言序列（assert_eq 宏展开）非控制流复杂度，豁免门禁（同 domain.rs 先例）
+    #[allow(clippy::cognitive_complexity)]
     #[test]
     fn fetch_success_payload_has_contract_shape() {
         use crate::domain::ExtractField as F;
@@ -342,6 +350,7 @@ mod tests {
             chars: 4,
             truncated: false,
             final_url: Some("https://example.com/b".into()),
+            http_status: Some(200),
         };
         let json = fetch_success(&page);
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -352,6 +361,7 @@ mod tests {
         assert_eq!(parsed["meta"]["chars"], 4);
         assert_eq!(parsed["meta"]["truncated"], false);
         assert_eq!(parsed["meta"]["final_url"], "https://example.com/b");
+        assert_eq!(parsed["meta"]["http_status"], 200);
         // 失败包复用统一信封
         let err = Error::Cli("bad url".into());
         let failed = failure(&err);
@@ -372,6 +382,7 @@ mod tests {
             chars: 4,
             truncated: true,
             final_url: None,
+            http_status: None,
         };
         let text = fetch_success_text(&page);
         assert!(text.contains("url: https://example.com/a"));
@@ -392,12 +403,14 @@ mod tests {
             chars: 0,
             truncated: false,
             final_url: Some("https://example.com/b".into()),
+            http_status: Some(404),
         };
         let text = fetch_success_text(&page);
         assert!(
             text.contains("redirected: https://example.com/b"),
             "final_url 与 url 不同时输出 redirected 行（实际: {text}）"
         );
+        assert!(text.contains("http: 404"), "http_status 输出 http 行");
         // final_url == url 时不输出 redirected
         let page_same = FetchedPage {
             final_url: Some("https://example.com/a".into()),

@@ -108,6 +108,9 @@ pub enum Command {
         /// Do not return body text (only extracted structured fields, saves tokens)
         #[arg(long)]
         no_text: bool,
+        /// Wait for this CSS selector to appear before extracting text (SPA content; best-effort, timeout still yields a success payload)
+        #[arg(long)]
+        wait_selector: Option<String>,
     },
     /// Run as an MCP stdio server
     #[cfg(feature = "mcp")]

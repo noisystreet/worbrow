@@ -29,6 +29,11 @@ pub const DOMAIN_LIMIT: usize = 2;
 /// fetch 页面加载等待轮询间隔（`wait_load`，ADR-009）。
 const LOAD_POLL: Duration = Duration::from_millis(200);
 
+/// 取目标页 HTTP 状态码的 JS 表达式（`PerformanceNavigationTiming.responseStatus`）：
+/// Firefox ≥ 105 / Chrome 支持；data: URL、跨域受限或无 navigation 条目时返回 `null`。
+/// 用 IIFE 保持"表达式"语义（Marionette 会包一层 `return (...)`，表达式内不能有顶层 return）。
+const HTTP_STATUS_JS: &str = "(() => { const n = performance.getEntriesByType('navigation')[0]; return n ? (n.responseStatus || null) : null; })()";
+
 /// 内容型（`ResultKind::Web`）结果数：质量降级信号核心（roadmap-result-quality.md）。
 /// 词典/翻译等污染结果不计入——高产低质（如 Bing 对 `best`/`learn` 返回全词典释义）
 /// 不再满足降级判定，自动尝试下一引擎。
@@ -203,6 +208,8 @@ pub struct FetchConfig {
     text: bool,
     /// 结构化字段提取 allowlist（空 = 不提取）。
     extract: Vec<ExtractField>,
+    /// SPA 内容等待选择器（导航后轮询该选择器出现再取正文；`None` = 现行为）。
+    wait_selector: Option<String>,
     timeout: Duration,
     browser: BrowserKind,
     /// 瞬时网络错误重试次数（`--retry`；指数退避，封顶）。
@@ -222,6 +229,7 @@ impl FetchConfig {
             max_chars: crate::domain::DEFAULT_MAX_CHARS,
             text: true,
             extract: Vec::new(),
+            wait_selector: None,
             timeout: Duration::from_secs(crate::domain::DEFAULT_TIMEOUT_SECS),
             browser,
             retry: 0,
@@ -246,6 +254,14 @@ impl FetchConfig {
     /// 结构化字段提取 allowlist（空 = 不提取）。
     pub fn with_extract(mut self, extract: Vec<ExtractField>) -> Self {
         self.extract = extract;
+        self
+    }
+
+    /// SPA 内容等待选择器：导航后轮询该选择器出现（预算内）再取正文。
+    /// 尽力语义：超时/失败仍返回成功包（正文可能为空，不改变"导航成功即成功包"）。
+    /// `None`（默认）= 保持现行为（仅等 `readyState=complete`）。
+    pub fn with_wait_selector(mut self, wait_selector: Option<String>) -> Self {
+        self.wait_selector = wait_selector;
         self
     }
 
@@ -522,7 +538,14 @@ pub(crate) async fn run_fetch_with(
     let result = timeout(config.timeout, async {
         let mut attempt = 0usize;
         loop {
-            match fetch_attempt(driver, &url, config.timeout).await {
+            match fetch_attempt(
+                driver,
+                &url,
+                config.timeout,
+                config.wait_selector.as_deref(),
+            )
+            .await
+            {
                 Ok(v) => break Ok((v, attempt)),
                 Err(e @ Error::Network(_)) if attempt < retries => {
                     attempt += 1;
@@ -539,7 +562,7 @@ pub(crate) async fn run_fetch_with(
         }
     })
     .await;
-    let (html, final_url) = match result {
+    let (html, final_url, http_status) = match result {
         Ok(Ok((v, _))) => v,
         Ok(Err(e)) => return Err(e),
         Err(_) => return Err(Error::Timeout("task timed out".into())),
@@ -576,25 +599,41 @@ pub(crate) async fn run_fetch_with(
         chars,
         truncated,
         final_url,
+        http_status,
     })
 }
 
-/// 单次抓取尝试：导航 → 等待加载（尽力）→ 取 HTML → 读重定向落地页。
+/// 单次抓取尝试：导航 → 等待加载（尽力）→（可选 SPA 选择器等待）→ 取 HTML →
+/// 读重定向落地页与 HTTP 状态码。
 async fn fetch_attempt(
     driver: &mut dyn BrowserDriver,
     url: &url::Url,
     timeout_dur: Duration,
-) -> Result<(String, Option<String>), Error> {
+    wait_selector: Option<&str>,
+) -> Result<(String, Option<String>, Option<u16>), Error> {
     driver.navigate(url.clone()).await?;
     // 等待加载：尽力语义（预算耗尽/eval 失败均不报错，导航成功即成功包）
     wait_load(driver, timeout_dur.min(WAIT_BUDGET)).await;
+    // SPA 内容等待（可选）：显式选择器出现后再取正文；尽力语义——超时/失败
+    // 仍继续抓取（正文可能为空），不改变"导航成功即成功包"契约（README 已知行为）
+    if let Some(selector) = wait_selector {
+        let _ = driver
+            .wait_for(selector, timeout_dur.min(WAIT_BUDGET))
+            .await;
+    }
     let html = driver.html().await?;
     let final_url = driver
         .eval("location.href")
         .await
         .ok()
         .and_then(|v| v.as_str().map(str::to_string));
-    Ok((html, final_url))
+    let http_status = driver
+        .eval(HTTP_STATUS_JS)
+        .await
+        .ok()
+        .and_then(|v| v.as_u64())
+        .map(|s| s as u16);
+    Ok((html, final_url, http_status))
 }
 
 /// 等待页面加载完成（尽力语义）：轮询 `document.readyState == "complete"`；
@@ -1630,5 +1669,93 @@ mod tests {
             start.elapsed() < Duration::from_secs(1),
             "eval 失败应立即返回（视为已加载）"
         );
+    }
+
+    /// fetch：`wait_selector` 触发 SPA 等待（wait_for 被调用）+ `http_status` 从
+    /// PerformanceNavigationTiming eval 读出（fetch 补强，ADR-010）。
+    #[tokio::test]
+    async fn fetch_reports_http_status_and_waits_for_selector() {
+        struct StatusDriver {
+            waited: std::sync::Arc<std::sync::atomic::AtomicUsize>,
+        }
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for StatusDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, selector: &str, _t: Duration) -> Result<(), Error> {
+                assert_eq!(selector, "#content", "wait_selector 应透传给 wait_for");
+                self.waited
+                    .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok("<html><body><div id=\"content\">正文</div></body></html>".into())
+            }
+            async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error> {
+                if js.contains("responseStatus") {
+                    return Ok(serde_json::json!(200));
+                }
+                if js.contains("location.href") {
+                    return Ok(serde_json::Value::String("https://example.com/a".into()));
+                }
+                if js.contains("readyState") {
+                    return Ok(serde_json::Value::String("complete".into()));
+                }
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+        let waited = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let mut driver = StatusDriver {
+            waited: waited.clone(),
+        };
+        let cfg = FetchConfig::new("https://example.com/a", BrowserKind::Fake)
+            .with_wait_selector(Some("#content".into()))
+            .with_timeout(Duration::from_secs(5));
+        let page = run_fetch_with(&mut driver, cfg).await.expect("抓取应成功");
+        assert_eq!(page.http_status, Some(200), "http_status 应从 eval 读出");
+        assert_eq!(
+            waited.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "wait_selector 应触发 wait_for"
+        );
+    }
+
+    /// fetch：`wait_selector` 超时（选择器未出现）→ 尽力语义，仍返回成功包。
+    #[tokio::test]
+    async fn fetch_wait_selector_timeout_is_best_effort() {
+        struct TimeoutWaitDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for TimeoutWaitDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Err(Error::Timeout("selector not found".into()))
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(String::new())
+            }
+            async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error> {
+                if js.contains("readyState") {
+                    return Ok(serde_json::Value::String("complete".into()));
+                }
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+        let mut driver = TimeoutWaitDriver;
+        let cfg = FetchConfig::new("https://example.com/a", BrowserKind::Fake)
+            .with_wait_selector(Some("#never".into()))
+            .with_timeout(Duration::from_secs(5));
+        let page = run_fetch_with(&mut driver, cfg)
+            .await
+            .expect("超时应尽力返回成功包");
+        assert_eq!(page.http_status, None);
     }
 }

@@ -51,7 +51,7 @@ cargo build --release
 
 Run `worbrow mcp` as an MCP stdio server, exposing tools to MCP clients:
 - `web_search` (query/engine/browser/max_results/timeout/lang/region/pages/freshness/safesearch/site/filetype/retry/no_cache/compact)
-- `fetch_page` (url/browser/timeout/max_chars/extract/text/retry: fetches an **explicitly passed** URL, returns cleaned body text and optional structured fields)
+- `fetch_page` (url/browser/timeout/max_chars/extract/text/wait_selector/retry: fetches an **explicitly passed** URL, returns cleaned body text and optional structured fields)
 - `list_engines` (list available engines), `doctor` (environment self-check: browser binaries/versions/engine registry)
 
 Tool results reuse the output contract (schema v1). With `compact=true`, `web_search` results contain only rank/title/url (saves agent context tokens, meta complete).
@@ -74,8 +74,8 @@ worbrow fetch https://example.com --json --extract price,rating
 ```
 
 - **Closing the loop**: pass `results[i].url` from `web_search` explicitly to `fetch_page` — "search links → read content → compare fields" in one step; **never auto-follows search results** (fetches explicit URLs only)
-- **Parameters**: `--max-chars <n>` (body truncation, default 20000, flagged by `meta.truncated`), `--no-text` (extracted fields only, saves tokens), `--extract a,b` (allowlist, invalid values exit 2)
-- **Known behavior**: HTTP 4xx/5xx/captcha/404 pages count as successful navigation and yield a success payload (body may be empty; v1 does not check HTTP status); `meta.final_url` records the redirect landing page; SPA/lazy-loaded content may be missing
+- **Parameters**: `--max-chars <n>` (body truncation, default 20000, flagged by `meta.truncated`), `--no-text` (extracted fields only, saves tokens), `--extract a,b` (allowlist, invalid values exit 2), `--wait-selector <css>` (SPA: wait for this selector before extracting text, best-effort)
+- **Known behavior**: navigation success always yields a success payload (body may be empty); `meta.http_status` reports the page HTTP status (best-effort via `PerformanceNavigationTiming.responseStatus`; `null` on Firefox < 105 / data: URLs), so 4xx/5xx/404 no longer go unnoticed; `meta.final_url` records the redirect landing page; SPA/lazy-loaded content may be missing — pass `--wait-selector <css>` to wait for the content to render
 - **Safety boundary**: `http/https` only (missing scheme defaults to `https://`); navigates with a real browser, page JS runs inside the browser (equivalent to clicking the link yourself); **can reach localhost/intranet** (equivalent to your local browser — do not feed untrusted input if you want to avoid being induced to fetch intranet content); no bulk fetching; rate discipline still applies
 - **Compliance**: fetch is an explicit full-page fetch by the user, a separate path from search engines' snippet-only crawling policy
 

@@ -306,6 +306,13 @@ pub struct FetchParams {
     )]
     #[serde(default = "default_none_vec")]
     pub extract: Option<Vec<String>>,
+    /// SPA 内容等待选择器（导航后轮询该选择器出现再取正文；尽力语义）
+    #[schemars(
+        description = "CSS selector to wait for before extracting text (SPA content; optional, best-effort, timeout still yields a success payload)",
+        default = "default_none"
+    )]
+    #[serde(default = "default_none")]
+    pub wait_selector: Option<String>,
     /// 是否返回正文文本
     #[schemars(
         description = "return cleaned body text (default true; false = only extracted fields, saves tokens)",
@@ -563,6 +570,7 @@ impl SearchServer {
             .with_max_chars(params.max_chars)
             .with_text(params.text)
             .with_extract(extract)
+            .with_wait_selector(params.wait_selector.clone())
             .with_timeout(Duration::from_secs(params.timeout.clamp(1, 300)))
             .with_retry(params.retry.min(5));
 

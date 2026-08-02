@@ -1,14 +1,16 @@
 # Changelog
 
-本文件记录用户可见变更（Keep a Changelog 风格）。
+This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+### Added
+
+- **Fetch enhancement (ADR-010)**: `meta.http_status` reports the target page HTTP status (best-effort via `PerformanceNavigationTiming.responseStatus`; `null` on Firefox < 105 / data: URLs), so 4xx/5xx/404 no longer go unnoticed; `--wait-selector <css>` (CLI) / `wait_selector` (MCP) waits for SPA content to render before extracting text (best-effort; timeout still yields a success payload); schema v1 only grows
+
 ### Changed
 
-- **界面文案英文化（L3）**：CLI `--help`/子命令描述、错误消息（`error.message`）、
-  MCP 工具与参数描述、`doctor` 输出全部改为英文，便于国际用户与 agent 消费；
-  退出码/JSON 契约/`schema_version` 零变化（仅 message 文本，字段未增改）
+- **Interface copy internationalization (L3)**: CLI `--help`/subcommand descriptions, error messages (`error.message`), MCP tool and parameter descriptions, and `doctor` output are now in English for international users and agents; exit codes / JSON contract / `schema_version` unchanged (message text only, no field additions)
 
 ## [0.2.0] - 2026-08-01
 

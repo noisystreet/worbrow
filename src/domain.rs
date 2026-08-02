@@ -201,6 +201,9 @@ pub struct FetchedPage {
     pub truncated: bool,
     /// 重定向落地页（导航后 `location.href`；与请求 URL 不同即发生了重定向）。
     pub final_url: Option<String>,
+    /// 目标页 HTTP 状态码（导航后 `PerformanceNavigationTiming.responseStatus`；
+    /// 尽力语义：Firefox < 105 / data: URL 等无状态场景为 `None`）。
+    pub http_status: Option<u16>,
 }
 
 /// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；零依赖纯枚举）。
