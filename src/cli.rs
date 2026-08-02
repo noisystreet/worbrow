@@ -6,82 +6,82 @@ use std::path::PathBuf;
 
 use clap::{Parser, Subcommand, ValueEnum};
 
-/// Agent 搜索 CLI：驱动本机 headless 浏览器执行搜索引擎搜索。
+/// Agent search CLI: drives local headless browsers to search the web.
 #[derive(Debug, Parser)]
 #[command(
     name = "worbrow",
     version,
-    about = "驱动本机 headless 浏览器（Chrome/Edge/Firefox）执行搜索引擎搜索",
+    about = "Drive local headless browsers (Chrome/Edge/Firefox) to search the web",
     long_about = None
 )]
 pub struct Cli {
-    /// 搜索词（有子命令时省略）
+    /// Search query (omit when using a subcommand)
     #[arg(value_name = "QUERY")]
     pub query: Option<String>,
 
-    /// 搜索引擎：逗号分隔 = 降级尝试顺序（可用: duckduckgo, bing）
+    /// Search engine: comma-separated fallback order (available: duckduckgo, bing)
     // 默认引擎与 `domain::DEFAULT_ENGINE` 保持一致（clap default_value 需字面量）；
     // 变更默认引擎时两处必须同步
     #[arg(long, default_value = "bing")]
     pub engine: String,
 
-    /// 浏览器后端
+    /// Browser backend
     #[arg(long, global = true, value_enum, default_value_t = BrowserArg::Firefox)]
     pub browser: BrowserArg,
 
-    /// 返回条数上限
+    /// Max number of results
     #[arg(long, default_value_t = worbrow::DEFAULT_MAX_RESULTS)]
     pub max_results: usize,
 
-    /// 全流程硬超时（秒）
+    /// Hard timeout in seconds for the whole run
     #[arg(long, global = true, default_value_t = worbrow::DEFAULT_TIMEOUT_SECS)]
     pub timeout: u64,
 
-    /// 翻页聚合页数（>1 时跨页去重合并）
+    /// Pages to aggregate (>1 merges results across pages)
     #[arg(long, default_value_t = 1)]
     pub pages: usize,
 
-    /// 结果语言（如 zh-hans，Bing setlang）
+    /// Result language (e.g. zh-hans, Bing setlang)
     #[arg(long)]
     pub lang: Option<String>,
 
-    /// 结果地域/市场（如 zh-CN，Bing mkt / DDG kl）
+    /// Result region/market (e.g. zh-CN, Bing mkt / DDG kl)
     #[arg(long)]
     pub region: Option<String>,
 
-    /// 时间过滤窗口（day|week|month|year；不指定 = 不限时间）
+    /// Freshness window (day|week|month|year; omit = any time)
     #[arg(long, value_enum)]
     pub freshness: Option<FreshnessArg>,
 
-    /// 安全搜索级别（off|moderate|strict；不指定 = 引擎默认）
+    /// Safe search level (off|moderate|strict; omit = engine default)
     #[arg(long, value_enum)]
     pub safesearch: Option<SafesearchArg>,
 
-    /// 站点过滤（query 级 site: 语法，如 doc.rust-lang.org）
+    /// Site filter (query-level site: syntax, e.g. doc.rust-lang.org)
     #[arg(long)]
     pub site: Option<String>,
 
-    /// 文件类型过滤（query 级 filetype: 语法，如 pdf）
+    /// File type filter (query-level filetype: syntax, e.g. pdf)
     #[arg(long)]
     pub filetype: Option<String>,
 
-    /// 瞬时网络错误重试次数（指数退避，封顶；仅网络错误触发）
+    /// Retry count for transient network errors (exponential backoff, capped; only network errors trigger)
     #[arg(long, global = true, default_value_t = 0)]
     pub retry: usize,
 
-    /// JSON 输出（agent 调用必带）
+    /// JSON output (required for agent use)
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// stderr 日志级别
+    /// stderr log level
     #[arg(long, global = true, value_enum, default_value_t = LogLevelArg::Off)]
     pub log_level: LogLevelArg,
 
-    /// 失败或成功时保存页面截图（调试）
+    /// Save a screenshot on failure or success (debugging)
     #[arg(long, global = true)]
     pub screenshot: Option<PathBuf>,
 
-    /// 失败或 low_yield 时保存原始 HTML（调试）
+    /// Save raw HTML on failure or low_yield (debugging)
     #[arg(long, global = true)]
     pub dump_html: Option<PathBuf>,
 
@@ -91,34 +91,34 @@ pub struct Cli {
 
 #[derive(Debug, Subcommand)]
 pub enum Command {
-    /// 自检环境：浏览器二进制、引擎注册表、驱动可用性
+    /// Check the environment: browser binaries, engine registry, driver availability
     Doctor,
-    /// 列出可用搜索引擎
+    /// List available search engines
     List,
-    /// 抓取显式指定的 URL，返回清洗后的正文与可选结构化字段（ADR-009）
+    /// Fetch an explicitly specified URL, returning cleaned body text and optional structured fields (ADR-009)
     Fetch {
-        /// 目标 URL（http/https；缺 scheme 自动补 https://）
+        /// Target URL (http/https; missing scheme defaults to https://)
         url: String,
-        /// 结构化字段提取（逗号分隔，可用: title/author/published_at/price/currency/rating/rating_max/reviews_count）
+        /// Extract structured fields (comma-separated; supported: title/author/published_at/price/currency/rating/rating_max/reviews_count)
         #[arg(long, value_delimiter = ',', value_enum)]
         extract: Vec<ExtractFieldArg>,
-        /// 正文截断上限（字符）
+        /// Max characters of body text
         #[arg(long, default_value_t = worbrow::DEFAULT_MAX_CHARS)]
         max_chars: usize,
-        /// 不返回正文文本（只返回 extracted 结构化字段，省 token）
+        /// Do not return body text (only extracted structured fields, saves tokens)
         #[arg(long)]
         no_text: bool,
     },
-    /// 以 MCP stdio server 形态运行
+    /// Run as an MCP stdio server
     #[cfg(feature = "mcp")]
     Mcp {
-        /// 空闲超时（秒）：超过该时长无任何请求则自动退出；0 = 禁用（等客户端断开）
+        /// Idle timeout (sec): exit after this long without any request; 0 = disabled (wait for client disconnect)
         #[arg(long, default_value_t = 0)]
         idle_timeout: u64,
-        /// 会话池并发上限：复用浏览器进程的并发搜索数；1 = 串行复用（省内存）
+        /// Session pool concurrency limit: concurrent searches reusing browser processes; 1 = serial reuse (saves memory)
         #[arg(long, default_value_t = 1)]
         max_sessions: usize,
-        /// 空闲会话回收阈值（秒）：超过该时长未使用的浏览器进程被回收
+        /// Idle session reclamation threshold (sec): browser processes unused longer than this are recycled
         #[arg(long, default_value_t = 60)]
         session_ttl: u64,
     },

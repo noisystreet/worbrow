@@ -356,7 +356,7 @@ impl DoctorReport {
 /// `tokio::task::block_in_place(|| handle.block_on(run(cfg)))`（需 multi-thread runtime）。
 pub fn search(config: Config) -> Result<Outcome, Error> {
     let runtime = tokio::runtime::Runtime::new()
-        .map_err(|e| Error::Internal(format!("tokio runtime 初始化失败: {e}")))?;
+        .map_err(|e| Error::Internal(format!("failed to initialize tokio runtime: {e}")))?;
     runtime.block_on(run(config))
 }
 
@@ -393,14 +393,14 @@ pub(crate) async fn run_with(
     // 1. 解析并校验 query
     let text = config.query.trim();
     if text.is_empty() {
-        return Err(Error::Cli("搜索词为空".into()));
+        return Err(Error::Cli("empty search query".into()));
     }
     if text.chars().count() > 512 {
-        return Err(Error::Cli("搜索词过长（>512 字符）".into()));
+        return Err(Error::Cli("search query too long (>512 characters)".into()));
     }
     // 空/全空引擎串（如 `--engine ""`）→ 参数错误（exit 2），而非内部错误
     if config.engines.is_empty() {
-        return Err(Error::Cli("未指定引擎".into()));
+        return Err(Error::Cli("no engine specified".into()));
     }
 
     let started_at = Utc::now();
@@ -430,7 +430,11 @@ pub(crate) async fn run_with(
                 Err(e @ Error::Network(_)) if attempt < retries => {
                     attempt += 1;
                     let delay = backoff_delay(attempt);
-                    tracing::warn!(attempt, ?delay, "瞬时网络错误，退避重试: {e}");
+                    tracing::warn!(
+                        attempt,
+                        ?delay,
+                        "transient network error, backing off and retrying: {e}"
+                    );
                     tokio::time::sleep(delay).await;
                 }
                 Err(e) => break Err(e),
@@ -442,19 +446,19 @@ pub(crate) async fn run_with(
         match outcome {
             Ok(Ok((v, retried))) => (v.0, v.1, v.2, v.3, v.4, v.5, v.6, retried),
             Ok(Err(e)) => return Err(e),
-            Err(_) => return Err(Error::Timeout("任务超时".into())),
+            Err(_) => return Err(Error::Timeout("task timed out".into())),
         };
 
     // 9. 可选调试产物（失败仅告警，不影响主流程）
     if let Some(path) = config.screenshot.as_deref()
         && let Err(e) = driver.screenshot(path).await
     {
-        tracing::warn!("截图保存失败 {path:?}: {e}");
+        tracing::warn!("failed to save screenshot {path:?}: {e}");
     }
     if let Some(path) = config.dump_html.as_deref()
         && let Err(e) = std::fs::write(path, &html)
     {
-        tracing::warn!("HTML 保存失败 {path:?}: {e}");
+        tracing::warn!("failed to save HTML {path:?}: {e}");
     }
 
     // 10. 组装 Outcome
@@ -487,7 +491,7 @@ pub(crate) async fn run_with(
 /// 异步上下文请直接用 [`run_fetch`]。
 pub fn fetch(config: FetchConfig) -> Result<FetchedPage, Error> {
     let runtime = tokio::runtime::Runtime::new()
-        .map_err(|e| Error::Internal(format!("tokio runtime 初始化失败: {e}")))?;
+        .map_err(|e| Error::Internal(format!("failed to initialize tokio runtime: {e}")))?;
     runtime.block_on(run_fetch(config))
 }
 
@@ -523,7 +527,11 @@ pub(crate) async fn run_fetch_with(
                 Err(e @ Error::Network(_)) if attempt < retries => {
                     attempt += 1;
                     let delay = backoff_delay(attempt);
-                    tracing::warn!(attempt, ?delay, "瞬时网络错误，退避重试: {e}");
+                    tracing::warn!(
+                        attempt,
+                        ?delay,
+                        "transient network error, backing off and retrying: {e}"
+                    );
                     tokio::time::sleep(delay).await;
                 }
                 Err(e) => break Err(e),
@@ -534,7 +542,7 @@ pub(crate) async fn run_fetch_with(
     let (html, final_url) = match result {
         Ok(Ok((v, _))) => v,
         Ok(Err(e)) => return Err(e),
-        Err(_) => return Err(Error::Timeout("任务超时".into())),
+        Err(_) => return Err(Error::Timeout("task timed out".into())),
     };
 
     // 3. 提取正文/结构化字段（同一份 HTML 二次解析，不重复导航）
@@ -549,12 +557,12 @@ pub(crate) async fn run_fetch_with(
     if let Some(path) = config.screenshot.as_deref()
         && let Err(e) = driver.screenshot(path).await
     {
-        tracing::warn!("截图保存失败 {path:?}: {e}");
+        tracing::warn!("failed to save screenshot {path:?}: {e}");
     }
     if let Some(path) = config.dump_html.as_deref()
         && let Err(e) = std::fs::write(path, &html)
     {
-        tracing::warn!("HTML 保存失败 {path:?}: {e}");
+        tracing::warn!("failed to save HTML {path:?}: {e}");
     }
 
     // 5. 组装 FetchedPage
@@ -614,7 +622,7 @@ async fn wait_load(driver: &mut dyn BrowserDriver, budget: Duration) {
 pub(crate) fn normalize_fetch_url(raw: &str) -> Result<url::Url, Error> {
     let raw = raw.trim();
     if raw.is_empty() {
-        return Err(Error::Cli("URL 为空".into()));
+        return Err(Error::Cli("empty URL".into()));
     }
     // 协议相对 URL（//example.com）→ https://example.com（与引擎 normalize_url 一致）
     let raw = if let Some(rest) = raw.strip_prefix("//") {
@@ -628,10 +636,11 @@ pub(crate) fn normalize_fetch_url(raw: &str) -> Result<url::Url, Error> {
     } else {
         format!("https://{raw}")
     };
-    let mut url = url::Url::parse(&candidate).map_err(|e| Error::Cli(format!("URL 无效: {e}")))?;
+    let mut url =
+        url::Url::parse(&candidate).map_err(|e| Error::Cli(format!("invalid URL: {e}")))?;
     if !matches!(url.scheme(), "http" | "https") {
         return Err(Error::Cli(format!(
-            "不支持的 URL scheme: {}（仅支持 http/https）",
+            "unsupported URL scheme: {} (only http/https supported)",
             url.scheme()
         )));
     }
@@ -698,7 +707,7 @@ async fn search_engine_chain(
     for name in &config.engines {
         let provider = engines::resolve(name)?;
         tried.push(provider.name().to_string());
-        tracing::info!(engine = provider.name(), "尝试引擎");
+        tracing::info!(engine = provider.name(), "trying engine");
 
         if let Some((engine, html, results, captcha, pages, low_yield)) = handle_engine_result(
             search_one(&*provider, query, driver, timeout_dur).await,
@@ -719,7 +728,7 @@ async fn search_engine_chain(
     }
     match last_error {
         Some(err) => Err(err),
-        None => Err(Error::Internal("引擎列表为空".into())),
+        None => Err(Error::Internal("engine list is empty".into())),
     }
 }
 
@@ -743,7 +752,11 @@ async fn handle_engine_result(
             let satisfied =
                 web_ratio_ok && (content >= query.max_results || content >= LOW_YIELD_THRESHOLD);
             if satisfied {
-                tracing::info!(engine = provider.name(), count = results.len(), "采用引擎");
+                tracing::info!(
+                    engine = provider.name(),
+                    count = results.len(),
+                    "adopting engine"
+                );
                 let low_yield = content < LOW_YIELD_THRESHOLD;
                 return Ok(Some((
                     provider.name(),
@@ -762,16 +775,19 @@ async fn handle_engine_result(
             if better {
                 *candidate = Some((provider.name(), results, captcha, pages, html));
             }
-            tracing::warn!(engine = provider.name(), "低产/低质，保留候选继续尝试");
+            tracing::warn!(
+                engine = provider.name(),
+                "low yield/low quality, keep candidate and try more engines"
+            );
             Ok(None)
         }
         Err(Error::Captcha(e)) => {
             *last_error = Some(Error::Captcha(e));
-            tracing::warn!(engine = provider.name(), "验证码阻止，降级");
+            tracing::warn!(engine = provider.name(), "captcha blocked, degrading");
             Ok(None)
         }
         Err(Error::Engine(e)) => {
-            tracing::warn!(engine = provider.name(), code = %e.code, "解析失败，降级");
+            tracing::warn!(engine = provider.name(), code = %e.code, "parse failed, degrading");
             *last_error = Some(Error::Engine(e));
             Ok(None)
         }
@@ -832,7 +848,9 @@ async fn search_one(
     }
 
     if captcha && all.is_empty() {
-        return Err(Error::Captcha("检测到验证码且未取得任何结果".into()));
+        return Err(Error::Captcha(
+            "captcha detected and no results obtained".into(),
+        ));
     }
 
     // 去重后重排 rank 并截断
@@ -863,7 +881,7 @@ async fn fetch_page(
     tracing::info!(
         elapsed_ms = step.elapsed().as_millis() as u64,
         page,
-        "navigate 完成"
+        "navigate done"
     );
 
     // 等待结果容器出现：二级超时（页面加载预算内截断，design.md §6.2）
@@ -874,7 +892,7 @@ async fn fetch_page(
     tracing::info!(
         elapsed_ms = step.elapsed().as_millis() as u64,
         page,
-        "wait_for 完成"
+        "wait_for done"
     );
 
     let step = Instant::now();
@@ -882,7 +900,7 @@ async fn fetch_page(
     tracing::info!(
         elapsed_ms = step.elapsed().as_millis() as u64,
         page,
-        "html 完成"
+        "html done"
     );
 
     // 验证码启发式检测（不中止）

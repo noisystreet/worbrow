@@ -39,7 +39,7 @@ pub fn find_browser(kind: BrowserKind) -> Result<PathBuf, Error> {
     let (env_var, names, default) = match kind {
         BrowserKind::Chrome => ("CHROME_PATH", CHROME_NAMES, CHROME_DEFAULT),
         BrowserKind::Firefox => ("FIREFOX_PATH", FIREFOX_NAMES, FIREFOX_DEFAULT),
-        BrowserKind::Fake => return Err(Error::Internal("fake 无真实二进制".into())),
+        BrowserKind::Fake => return Err(Error::Internal("fake has no real binary".into())),
     };
 
     // 1. 环境变量显式指定
@@ -50,7 +50,10 @@ pub fn find_browser(kind: BrowserKind) -> Result<PathBuf, Error> {
         if p.exists() {
             return Ok(p);
         }
-        return Err(Error::Env(format!("{env_var}={} 不存在", p.display())));
+        return Err(Error::Env(format!(
+            "{env_var}={} does not exist",
+            p.display()
+        )));
     }
 
     // 2. PATH 搜索
@@ -65,7 +68,7 @@ pub fn find_browser(kind: BrowserKind) -> Result<PathBuf, Error> {
     }
 
     Err(Error::Env(format!(
-        "未找到 {} 浏览器二进制（设置 {env_var} 或安装后重试）",
+        "no {} browser binary found (set {env_var} or install it and retry)",
         kind
     )))
 }

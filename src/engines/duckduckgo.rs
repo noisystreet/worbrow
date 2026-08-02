@@ -97,7 +97,7 @@ impl SearchProvider for DuckDuckGo {
         if results.is_empty() {
             return Err(EngineFailure::new(
                 "no_results",
-                "页面结构未解析出任何结果（引擎改版或反爬）",
+                "no results parsed (engine layout changed or anti-bot)",
             ));
         }
         Ok(results)

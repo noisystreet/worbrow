@@ -108,7 +108,7 @@ impl CdpDriver {
             && version < 109
         {
             return Err(Error::Env(format!(
-                "Chrome 版本过低（{version} < 109），不支持 --headless=new（二进制: {}）",
+                "Chrome version too old ({version} < 109), does not support --headless=new (binary: {})",
                 binary.display()
             )));
         }
@@ -132,11 +132,14 @@ impl CdpDriver {
         // stderr 写入 devtools.log 供端口发现（随 profile 一起清理）
         cmd.stdout(Stdio::null());
         cmd.stderr(Stdio::from(std::fs::File::create(&devtools_log).map_err(
-            |e| Error::Env(format!("创建 DevTools 日志文件失败: {e}")),
+            |e| Error::Env(format!("failed to create DevTools log file: {e}")),
         )?));
-        let child = cmd
-            .spawn()
-            .map_err(|e| Error::Env(format!("启动 Chrome（{}）失败: {e}", binary.display())))?;
+        let child = cmd.spawn().map_err(|e| {
+            Error::Env(format!(
+                "failed to launch Chrome ({}): {e}",
+                binary.display()
+            ))
+        })?;
         // child 尚未进入 Inner：guard 保证任何错误/取消路径都 kill+wait，
         // 否则 std::process::Child 的 Drop 不杀进程 → 残留 Chrome（design.md §8）
         let child = ChildGuard::new(child);
@@ -147,7 +150,7 @@ impl CdpDriver {
             Ok(Err(e)) => return Err(e),
             Err(_) => {
                 return Err(Error::Timeout(
-                    "等待 Chrome DevTools 就绪超时（chrome 启动失败，详见 devtools.log）".into(),
+                    "timed out waiting for Chrome DevTools to be ready (Chrome failed to start; see devtools.log)".into(),
                 ));
             }
         };
@@ -181,7 +184,7 @@ impl BrowserDriver for CdpDriver {
                 .get("targetId")
                 .and_then(|v| v.as_str())
                 .map(String::from)
-                .ok_or_else(|| Error::Network("createTarget 响应缺少 targetId".into()))?;
+                .ok_or_else(|| Error::Network("createTarget response missing targetId".into()))?;
             let sid = inner
                 .transport
                 .send(
@@ -193,14 +196,16 @@ impl BrowserDriver for CdpDriver {
                 .get("sessionId")
                 .and_then(|v| v.as_str())
                 .map(String::from)
-                .ok_or_else(|| Error::Network("attachToTarget 响应缺少 sessionId".into()))?;
+                .ok_or_else(|| {
+                    Error::Network("attachToTarget response missing sessionId".into())
+                })?;
             inner.session_id = Some(sid);
         }
         // clone 到局部变量，避免对 inner 的双重借用（transport 需 &mut）
         let sid = inner
             .session_id
             .clone()
-            .ok_or_else(|| Error::Network("未先 navigate".into()))?;
+            .ok_or_else(|| Error::Network("navigate not called yet".into()))?;
         inner
             .transport
             .send("Page.navigate", json!({"url": url.to_string()}), Some(&sid))
@@ -214,7 +219,7 @@ impl BrowserDriver for CdpDriver {
         let sid = inner
             .session_id
             .clone()
-            .ok_or_else(|| Error::Network("未先 navigate 即 wait_for".into()))?;
+            .ok_or_else(|| Error::Network("wait_for called before navigate".into()))?;
         // selector 经 {:?} 转义为合法 JS 字符串字面量（含引号/反斜杠安全）
         let expr = format!("!!document.querySelector({selector:?})");
         let deadline = Instant::now() + timeout;
@@ -232,7 +237,9 @@ impl BrowserDriver for CdpDriver {
                 return Ok(());
             }
             if Instant::now() >= deadline {
-                return Err(Error::Timeout(format!("等待选择器超时: {selector}")));
+                return Err(Error::Timeout(format!(
+                    "timed out waiting for selector: {selector}"
+                )));
             }
             tokio::time::sleep(POLL_INTERVAL).await;
         }
@@ -243,7 +250,7 @@ impl BrowserDriver for CdpDriver {
         let sid = inner
             .session_id
             .clone()
-            .ok_or_else(|| Error::Network("未先 navigate 即取 HTML".into()))?;
+            .ok_or_else(|| Error::Network("html() called before navigate".into()))?;
         let r = inner
             .transport
             .send(
@@ -256,7 +263,7 @@ impl BrowserDriver for CdpDriver {
             .and_then(|v| v.get("value"))
             .and_then(|v| v.as_str())
             .map(String::from)
-            .ok_or_else(|| Error::Network("Runtime.evaluate 响应缺少 outerHTML".into()))
+            .ok_or_else(|| Error::Network("Runtime.evaluate response missing outerHTML".into()))
     }
 
     async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error> {
@@ -264,7 +271,7 @@ impl BrowserDriver for CdpDriver {
         let sid = inner
             .session_id
             .clone()
-            .ok_or_else(|| Error::Network("未先 navigate 即 eval".into()))?;
+            .ok_or_else(|| Error::Network("eval called before navigate".into()))?;
         let r = inner
             .transport
             .send("Runtime.evaluate", json!({"expression": js}), Some(&sid))
@@ -280,7 +287,7 @@ impl BrowserDriver for CdpDriver {
         let sid = inner
             .session_id
             .clone()
-            .ok_or_else(|| Error::Network("未先 navigate 即截图".into()))?;
+            .ok_or_else(|| Error::Network("screenshot called before navigate".into()))?;
         let r = inner
             .transport
             .send(
@@ -292,12 +299,16 @@ impl BrowserDriver for CdpDriver {
         let b64 = r
             .get("data")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| Error::Network("captureScreenshot 响应缺少 data".into()))?;
+            .ok_or_else(|| Error::Network("captureScreenshot response missing data".into()))?;
         let png = base64::engine::general_purpose::STANDARD
             .decode(b64)
-            .map_err(|e| Error::Network(format!("截图 base64 解码失败: {e}")))?;
-        std::fs::write(path, png)
-            .map_err(|e| Error::Internal(format!("写入截图失败（{}）: {e}", path.display())))
+            .map_err(|e| Error::Network(format!("failed to decode screenshot base64: {e}")))?;
+        std::fs::write(path, png).map_err(|e| {
+            Error::Internal(format!(
+                "failed to write screenshot ({}): {e}",
+                path.display()
+            ))
+        })
     }
 }
 
@@ -306,7 +317,7 @@ async fn wait_ready(inner: &mut CdpInner, timeout: Duration) -> Result<(), Error
     let sid = inner
         .session_id
         .clone()
-        .ok_or_else(|| Error::Network("未先 navigate".into()))?;
+        .ok_or_else(|| Error::Network("navigate not called yet".into()))?;
     let deadline = Instant::now() + timeout;
     loop {
         let r = inner
@@ -327,7 +338,7 @@ async fn wait_ready(inner: &mut CdpInner, timeout: Duration) -> Result<(), Error
         }
         if Instant::now() >= deadline {
             return Err(Error::Timeout(
-                "等待页面加载完成（readyState=complete）超时".into(),
+                "timed out waiting for page load (readyState=complete)".into(),
             ));
         }
         tokio::time::sleep(POLL_INTERVAL).await;
@@ -343,9 +354,9 @@ struct CdpTransport {
 
 impl CdpTransport {
     async fn connect(ws_url: &str) -> Result<Self, Error> {
-        let (ws, _) = connect_async(ws_url)
-            .await
-            .map_err(|e| Error::Network(format!("CDP WebSocket 连接失败（{ws_url}）: {e}")))?;
+        let (ws, _) = connect_async(ws_url).await.map_err(|e| {
+            Error::Network(format!("CDP WebSocket connection failed ({ws_url}): {e}"))
+        })?;
         Ok(Self {
             ws,
             ids: IdAllocator::default(),
@@ -378,27 +389,27 @@ impl CdpTransport {
             req = req.with_session(sid);
         }
         let text = serde_json::to_string(&req)
-            .map_err(|e| Error::Network(format!("CDP 请求序列化失败: {e}")))?;
+            .map_err(|e| Error::Network(format!("CDP request serialization failed: {e}")))?;
         self.ws
             .send(Message::Text(text.into()))
             .await
-            .map_err(|e| Error::Network(format!("CDP 发送失败: {e}")))?;
+            .map_err(|e| Error::Network(format!("CDP send failed: {e}")))?;
 
         let result = loop {
             // 命令级超时：Chrome 挂起（JS 死循环/网络异常）时不永久阻塞（design.md §8）
             let msg = timeout(cmd_timeout, self.ws.next()).await.map_err(|_| {
-                Error::Timeout(format!("CDP 命令超时（{cmd_timeout:?}）: {method}"))
+                Error::Timeout(format!("CDP command timed out ({cmd_timeout:?}): {method}"))
             })?;
             let msg = msg
-                .ok_or_else(|| Error::Network("CDP 连接已关闭".into()))?
-                .map_err(|e| Error::Network(format!("CDP WebSocket 错误: {e}")))?;
+                .ok_or_else(|| Error::Network("CDP connection closed".into()))?
+                .map_err(|e| Error::Network(format!("CDP WebSocket error: {e}")))?;
             let text = match msg {
                 Message::Text(t) => t.to_string(),
                 Message::Binary(b) => String::from_utf8_lossy(&b).into_owned(),
                 _ => continue, // ping/pong/close 等由库处理，跳过
             };
             let incoming: Incoming = serde_json::from_str(&text)
-                .map_err(|e| Error::Network(format!("CDP 消息解析失败: {e}")))?;
+                .map_err(|e| Error::Network(format!("CDP message parse failed: {e}")))?;
             match incoming {
                 Incoming::Response(RpcResponse {
                     id: resp_id,
@@ -416,7 +427,7 @@ impl CdpTransport {
         tracing::debug!(
             method,
             elapsed_ms = started.elapsed().as_millis() as u64,
-            "cdp 命令完成"
+            "cdp command done"
         );
         result
     }
@@ -426,9 +437,9 @@ impl CdpTransport {
 fn cdp_error(method: &str, err: &super::jsonrpc::RpcError) -> Error {
     match err.code {
         // -32000：协议层「Server error」，导航到非法 URL / 页面加载失败等
-        -32000 => Error::Timeout(format!("CDP {method} 失败（-32000）: {}", err.message)),
+        -32000 => Error::Timeout(format!("CDP {method} failed (-32000): {}", err.message)),
         _ => Error::Network(format!(
-            "CDP {method} 错误（{}）: {}",
+            "CDP {method} error ({}): {}",
             err.code, err.message
         )),
     }
@@ -460,7 +471,7 @@ fn create_profile() -> Result<TempDir, Error> {
     tempfile::Builder::new()
         .prefix("worbrow-chrome-profile-")
         .tempdir()
-        .map_err(|e| Error::Env(format!("创建 Chrome user-data-dir 失败: {e}")))
+        .map_err(|e| Error::Env(format!("failed to create Chrome user-data-dir: {e}")))
 }
 
 #[cfg(test)]

@@ -118,7 +118,7 @@ pub fn success_text(query: &str, results: &[SearchResult], meta: &SearchMeta) ->
 
 /// 人读失败文本（无 `--json`）。
 pub fn failure_text(err: &Error) -> String {
-    format!("错误 [{}]: {err}\n", err.code_str())
+    format!("error [{}]: {err}\n", err.code_str())
 }
 
 /// 抓取成功包（`worbrow fetch` / MCP `fetch_page`，ADR-009）：新 sibling 契约，
@@ -228,7 +228,7 @@ mod tests {
 
     #[test]
     fn failure_detail_contains_engine_code() {
-        let err = Error::Engine(crate::error::EngineFailure::new("no_results", "页面无结果"));
+        let err = Error::Engine(crate::error::EngineFailure::new("no_results", "no results"));
         let parsed: serde_json::Value = serde_json::from_str(&failure(&err)).unwrap();
         assert_eq!(parsed["error"]["code"], "parse");
         assert_eq!(parsed["error"]["detail"], "no_results");
@@ -272,9 +272,9 @@ mod tests {
 
     #[test]
     fn failure_text_includes_code() {
-        let text = failure_text(&Error::Cli("缺参".into()));
+        let text = failure_text(&Error::Cli("missing arg".into()));
         assert!(text.contains("[cli]"));
-        assert!(text.contains("缺参"));
+        assert!(text.contains("missing arg"));
         assert!(!text.contains("schema_version"));
     }
 

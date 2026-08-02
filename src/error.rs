@@ -6,28 +6,28 @@ use thiserror::Error;
 #[derive(Debug, Error)]
 pub enum Error {
     /// 参数错误 → exit 2
-    #[error("参数错误: {0}")]
+    #[error("argument error: {0}")]
     Cli(String),
     /// 环境错误（浏览器未安装/协议连通失败）→ exit 3
-    #[error("环境错误: {0}")]
+    #[error("environment error: {0}")]
     Env(String),
     /// 网络错误 → exit 4
-    #[error("网络错误: {0}")]
+    #[error("network error: {0}")]
     Network(String),
     /// 引擎解析失败 → exit 4
-    #[error("引擎错误: {0}")]
+    #[error("engine error: {0}")]
     Engine(#[from] EngineFailure),
     /// 验证码/反爬阻止 → exit 4
-    #[error("验证码/反爬: {0}")]
+    #[error("captcha/anti-bot: {0}")]
     Captcha(String),
     /// 超时 → exit 124（对齐 GNU timeout 语义）
-    #[error("超时: {0}")]
+    #[error("timeout: {0}")]
     Timeout(String),
     /// 功能未实现（骨架阶段占位）→ exit 1
-    #[error("未实现: {0}")]
+    #[error("not implemented: {0}")]
     NotImplemented(String),
     /// 内部错误 → exit 1
-    #[error("内部错误: {0}")]
+    #[error("internal error: {0}")]
     Internal(String),
 }
 
@@ -89,7 +89,7 @@ impl EngineFailure {
 
 impl From<tokio::time::error::Elapsed> for Error {
     fn from(_: tokio::time::error::Elapsed) -> Self {
-        Error::Timeout("任务超时".into())
+        Error::Timeout("task timed out".into())
     }
 }
 

@@ -122,13 +122,13 @@ impl SessionPool {
             .clone()
             .acquire_owned()
             .await
-            .map_err(|_| Error::Internal("会话池已关闭".into()))?;
+            .map_err(|_| Error::Internal("session pool is closed".into()))?;
         // 先从空闲池取（锁在无 await 的分支内即释放，避免 MutexGuard 跨 await 非 Send）
         let idle_driver = {
             let mut idle = self
                 .idle
                 .lock()
-                .map_err(|_| Error::Internal("会话池锁中毒".into()))?;
+                .map_err(|_| Error::Internal("session pool lock poisoned".into()))?;
             idle.pop().map(|entry| entry.driver)
         };
         let driver = match idle_driver {

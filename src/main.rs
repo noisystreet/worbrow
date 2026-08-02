@@ -19,7 +19,7 @@ fn main() -> ExitCode {
     match std::panic::catch_unwind(run_cli) {
         Ok(code) => code,
         Err(_) => {
-            eprintln!("内部错误: 发生 panic，请上报");
+            eprintln!("internal error: panic occurred, please report");
             ExitCode::from(1)
         }
     }
@@ -54,7 +54,7 @@ fn run_cli() -> ExitCode {
     let Some(query) = cli.query else {
         return finish(
             &Err(Error::Cli(
-                "缺少搜索词（用法: worbrow \"<query>\" 或 worbrow doctor）".into(),
+                "missing search query (usage: worbrow \"<query>\" or worbrow doctor)".into(),
             )),
             json,
         );
@@ -106,14 +106,14 @@ fn finish(result: &Result<app::Outcome, Error>, json: bool) -> ExitCode {
 fn doctor() -> ExitCode {
     println!("=== worbrow doctor ===");
     let report = app::DoctorReport::collect();
-    println!("引擎注册表:");
+    println!("engines:");
     for name in &report.engines {
         println!("  - {name}");
     }
-    println!("浏览器后端:");
+    println!("browser backends:");
     for backend in &report.backends {
         match backend.kind {
-            BrowserKind::Fake => println!("  - fake: 可用（测试）"),
+            BrowserKind::Fake => println!("  - fake: available (testing)"),
             BrowserKind::Chrome | BrowserKind::Firefox => {
                 let label = match backend.kind {
                     BrowserKind::Chrome => "chrome (CDP)",
@@ -121,15 +121,15 @@ fn doctor() -> ExitCode {
                 };
                 match (&backend.binary, backend.major_version) {
                     (Some(p), Some(v)) => println!(
-                        "  - {label}: 已实现（V1），二进制: {}（主版本 {v}）",
+                        "  - {label}: implemented (V1), binary: {} (major version {v})",
                         p.display()
                     ),
                     (Some(p), None) => {
-                        println!("  - {label}: 已实现（V1），二进制: {}", p.display())
+                        println!("  - {label}: implemented (V1), binary: {}", p.display())
                     }
                     (None, _) => println!(
-                        "  - {label}: 不可用 - {}",
-                        backend.error.as_deref().unwrap_or("未知原因")
+                        "  - {label}: unavailable - {}",
+                        backend.error.as_deref().unwrap_or("unknown reason")
                     ),
                 }
             }
@@ -198,7 +198,7 @@ fn mcp_main(idle_timeout: u64, max_sessions: usize, session_ttl: u64) -> ExitCod
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
-            eprintln!("tokio runtime 初始化失败: {e}");
+            eprintln!("failed to initialize tokio runtime: {e}");
             return ExitCode::from(1);
         }
     };
@@ -217,7 +217,7 @@ fn mcp_main(idle_timeout: u64, max_sessions: usize, session_ttl: u64) -> ExitCod
             std::process::exit(0);
         }
         Err(e) => {
-            eprintln!("MCP server 退出: {e}");
+            eprintln!("MCP server exited: {e}");
             ExitCode::from(1)
         }
     }
