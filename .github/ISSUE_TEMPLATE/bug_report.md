@@ -1,25 +1,25 @@
 ---
-name: Bug 报告
-about: 反馈问题以帮助我们改进
+name: Bug report
+about: Report a problem to help us improve
 title: "[bug] "
 labels: bug
 assignees: ''
 ---
 
-## 环境
+## Environment
 
-- worbrow 版本（`worbrow --version` 或提交号）:
-- 操作系统:
-- 浏览器后端（`firefox` / `chrome` / `fake`）:
+- worbrow version (`worbrow --version` or commit hash):
+- OS:
+- Browser backend (`firefox` / `chrome` / `fake`):
 
-## 复现步骤
+## Steps to reproduce
 
 1.
 2.
 3.
 
-## 期望行为
+## Expected behavior
 
-## 实际行为
+## Actual behavior
 
-## 相关日志（stderr，勿包含密钥/个人信息）
+## Relevant logs (stderr; no secrets or personal information)

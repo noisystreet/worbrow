@@ -1,19 +1,19 @@
 ---
-name: 功能建议
-about: 提出新引擎 / 新能力 / 改进建议
+name: Feature request
+about: Suggest a new engine / capability / improvement
 title: "[feat] "
 labels: enhancement
 assignees: ''
 ---
 
-## 需求描述
+## Description
 
-<!-- 你希望 worbrow 能做什么？ -->
+<!-- What would you like worbrow to do? -->
 
-## 使用场景
+## Use case
 
-<!-- 在什么情况下会用到？ -->
+<!-- When would you use this? -->
 
-## 可行方案（可选）
+## Possible approaches (optional)
 
-<!-- 实现思路、参考实现等。 -->
+<!-- Implementation ideas, references, etc. -->
