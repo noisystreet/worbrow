@@ -35,16 +35,17 @@ cargo run -- fetch https://example.com --no-text --extract price        # 只要
 当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
 `fake` 供测试/冒烟。协议实现见 [ADR-002](docs/adr/0002-browser-driver-protocols.md)。
 
-### 安装（Debian/Ubuntu）
+### 安装
 
-发布形态的 `.deb` 含 MCP 支持（`worbrow mcp`）：
+每个 [GitHub Release](https://github.com/noisystreet/worbrow/releases)（`v*` tag）附赠**预编译二进制**：
+`worbrow-linux-x86_64.tar.gz`、`worbrow-macos-arm64.tar.gz`、`worbrow-windows-x86_64.zip`，附 `SHA256SUMS` 校验文件。
+Debian/Ubuntu 用户也可安装发布版 `.deb`（含 MCP 支持，`worbrow mcp`）：
 
 ```bash
-make deb                       # 生成 target/debian/worbrow_*.deb
-sudo apt install ./target/debian/worbrow_*.deb
+sudo apt install ./worbrow_*.deb
 ```
 
-或直接在 CI 产物/发布页安装；运行时弱依赖 Firefox（Recommends: firefox | firefox-esr）。
+或源码构建（`cargo install worbrow`，或 `make deb` 生成本地 `.deb`）。运行时弱依赖 Firefox（Recommends: firefox | firefox-esr）。
 
 ### MCP（Model Context Protocol）
 

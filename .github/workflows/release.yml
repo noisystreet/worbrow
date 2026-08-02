@@ -8,9 +8,26 @@ permissions:
   contents: write
 
 jobs:
-  release:
-    name: GitHub Release
-    runs-on: ubuntu-latest
+  build:
+    name: build (${{ matrix.asset }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            asset: worbrow-linux-x86_64
+            suffix: ''
+            ext: tar.gz
+            deb: true
+          - os: macos-latest
+            asset: worbrow-macos-arm64
+            suffix: ''
+            ext: tar.gz
+          - os: windows-latest
+            asset: worbrow-windows-x86_64.exe
+            suffix: '.exe'
+            ext: zip
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -18,17 +35,60 @@ jobs:
 
       - uses: Swatinem/rust-cache@v2
 
-      # 轻量确认：tag 内容可构建（全量门禁已由 PR 上的 ci.yml 覆盖）
-      - name: sanity check (locked)
-        run: cargo check --all-features --locked
+      # release 构建即完整性验证（--locked 锁定锁文件；全量门禁已由 PR 的 ci.yml 覆盖）
+      - name: build release binary
+        run: cargo build --release --all-features --locked
+
+      - name: stage binary
+        shell: bash
+        run: |
+          mkdir -p dist
+          cp "target/release/worbrow${{ matrix.suffix }}" "dist/${{ matrix.asset }}"
+
+      - name: package (tar.gz)
+        if: matrix.ext == 'tar.gz'
+        run: tar -C dist -czf "dist/${{ matrix.asset }}.tar.gz" "${{ matrix.asset }}"
+
+      - name: package (zip)
+        if: matrix.ext == 'zip'
+        shell: pwsh
+        run: Compress-Archive -Path "dist/${{ matrix.asset }}" -DestinationPath "dist/${{ matrix.asset }}.zip"
 
       - uses: taiki-e/install-action@cargo-deb
+        if: matrix.deb
 
       - name: build deb
+        if: matrix.deb
         run: cargo deb
+
+      - name: stage deb
+        if: matrix.deb
+        shell: bash
+        run: cp target/debian/*.deb dist/
+
+      - name: upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-assets
+          path: dist/
+          if-no-files-found: error
+
+  publish:
+    name: GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-assets
+          path: release/
+          merge-multiple: true
+
+      - name: checksums
+        run: (cd release && sha256sum * > SHA256SUMS)
 
       - name: create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: target/debian/*.deb
+          files: release/*
           generate_release_notes: true

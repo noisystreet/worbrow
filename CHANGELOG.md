@@ -6,6 +6,7 @@ This file records user-visible changes (Keep a Changelog style).
 
 ### Added
 
+- **Multi-platform release artifacts**: GitHub Releases now attach `worbrow-linux-x86_64.tar.gz`, `worbrow-macos-arm64.tar.gz`, and `worbrow-windows-x86_64.zip` (with a `SHA256SUMS` checksum) alongside the `.deb`; CI adds a cross-platform compile job mirroring the release matrix
 - **Fetch enhancement (ADR-010)**: `meta.http_status` reports the target page HTTP status (best-effort via `PerformanceNavigationTiming.responseStatus`; `null` on Firefox < 105 / data: URLs), so 4xx/5xx/404 no longer go unnoticed; `--wait-selector <css>` (CLI) / `wait_selector` (MCP) waits for SPA content to render before extracting text (best-effort; timeout still yields a success payload); schema v1 only grows
 
 ### Changed
