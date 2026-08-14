@@ -9,20 +9,22 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 
 当前已稳定：
 
-- **引擎**：duckduckgo、bing（默认）；解析失败走 `EngineFailure`（exit 4）
-- **浏览器后端**：Firefox（Marionette，自研协议，含超时/版本校验/并发隔离）与 Chrome/Edge（CDP，自研协议）均已实现；`fake` 供 CI 冒烟
-- **MCP**：`web_search` 工具 + 空闲超时（覆盖握手前/后）
+- **引擎**：duckduckgo、bing、baidu；默认降级链 `bing,duckduckgo,baidu`；解析失败走 `EngineFailure`（exit 4）
+- **浏览器后端**：Firefox（Marionette）与 Chrome/Edge（CDP）均已实现；`fake` 供 CI 冒烟
+- **MCP**：`web_search` / `fetch_page` / `list_engines` / `doctor`；空闲超时；会话池（ADR-007）；短 TTL 缓存（ADR-008）
 - **契约**：schema v1、退出码语义冻结、stdout 仅 JSON
 
-规划聚焦两个短板：**浏览器覆盖**（CDP 缺口）与**搜索体验**（单页、无地域/语言控制、每次搜索重新起浏览器）。
+规划中的短板（CDP、会话复用、搜索参数、fetch）均已落地；剩余见 §3 未勾选项与 [design.md](design.md) §13 V2（`--connect`）。
 
 ## 2. 目标与非目标
 
-### 目标
+### 目标（均已落地）
 
 1. Chrome/Edge 后端可用（`--browser chrome` / MCP `browser=chrome`）
-2. 多次搜索复用长驻浏览器会话，显著降低单次搜索开销（当前每次 spawn 约 2-5s）
+2. 多次搜索复用长驻浏览器会话（MCP 会话池，ADR-007）
 3. 搜索结果更可控：语言、地域、翻页聚合、精确条数
+
+剩余未做：跨进程 `--connect`（见 [design.md](design.md) §13 V2）。
 
 ### 非目标（明确不做）
 
@@ -40,7 +42,7 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 
 | 项 | 内容 |
 |---|---|
-| 现状 | [cdp.rs](../src/drivers/cdp.rs) 全部 `NotImplemented`（[ADR-002](adr/0002-browser-driver-protocols.md) 规划 V1/V2） |
+| 现状 | 已落地：[cdp.rs](../src/drivers/cdp.rs) WebSocket 实现 + [tests/cdp_smoke.rs](../tests/cdp_smoke.rs) 真机冒烟（[ADR-002](adr/0002-browser-driver-protocols.md)） |
 | 目标 | `browser=chrome/edge/chromium` 走真实搜索 |
 | 改动点 | ① [cdp.rs](../src/drivers/cdp.rs)：基于 [jsonrpc.rs](../src/drivers/jsonrpc.rs) + `tokio-tungstenite`（依赖已预留）实现 WebSocket 传输；② 命令子集 `Target.attachToTarget` / `Page.navigate` / `Runtime.evaluate`（取 HTML、`document.readyState`、验证码判定）/ `Page.captureScreenshot`；③ 生命周期：`chrome --headless=new --remote-debugging-port=<动态端口>`，`GET /json/version` 取 `webSocketDebuggerUrl`（复用 [marionette.rs](../src/drivers/marionette.rs) 的随机端口/profile/版本校验模式）；④ [drivers/mod.rs](../src/drivers/mod.rs) `resolve` 接 `BrowserKind::Chrome`，`doctor` 输出同步 |
 | 验证 | jsonrpc 单测；data: URL 真机冒烟（参照 [firefox_smoke.rs](../tests/firefox_smoke.rs)）；CI 外真搜索 |

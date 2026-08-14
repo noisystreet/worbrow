@@ -10,8 +10,9 @@ Hard constraints and verification entry points for agents (and humans) working i
 
 ## Hard constraints (revert on violation)
 
-1. **Dependency direction**: `cli → app → domain/ports ← adapters(drivers/engines)`. `domain` has zero framework
-   dependencies; `app` programs only against the `ports` traits; reverse/cyclic dependencies are forbidden.
+1. **Dependency direction**: `cli → app → domain/ports ← adapters(drivers/engines)`. `domain` has no IO /
+   browser / parser-framework dependencies (serde + chrono for DTO serialization only); `app` programs only
+   against the `ports` traits; reverse/cyclic dependencies are forbidden.
 2. **Hand-written browser protocols**: CDP (Chrome/Edge) and Marionette (Firefox) must be implemented by hand;
    **introducing chromiumoxide / fantoccini / playwright is forbidden**. Protocol commands live in their own driver
    files plus the shared JSON-RPC framework in `drivers/jsonrpc.rs`. The only exception: revisit per `docs/design.md`
