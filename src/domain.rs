@@ -1,4 +1,4 @@
-//! 领域模型：纯数据，不依赖框架/IO 细节（design.md §6.3）。
+//! 领域模型：纯数据，不依赖 IO / 浏览器 / 解析框架（允许 serde + chrono 做 DTO 序列化；design.md §6.3）。
 
 use std::fmt;
 
@@ -209,7 +209,7 @@ pub struct FetchedPage {
     pub http_status: Option<u16>,
 }
 
-/// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；零依赖纯枚举）。
+/// 浏览器后端标识（配置概念，供 CLI/MCP/库调用方选择驱动后端；不依赖驱动实现）。
 /// `Serialize` 供 `doctor` 工具输出（lowercase，与 CLI 参数一致）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize)]
 #[serde(rename_all = "lowercase")]

@@ -4,6 +4,10 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+### Fixed
+
+- **CLI `--engine` help**：available engines now include `baidu` (was `duckduckgo, bing` only)
+
 ### Changed
 
 - **相关性门禁（P3，roadmap-result-quality.md）**：降级判定叠加查询词重叠检查——当

@@ -256,8 +256,8 @@ make doctor     # 运行 worbrow doctor
 src/
   main.rs    # 薄入口 + CLI 参数解析（clap，bin 私有）
   lib.rs     # 库公开面：顶层 re-export（Config/BrowserKind/...，ADR-006）
-  app.rs domain.rs error.rs ports.rs output.rs extract.rs
-  drivers/   # resolve · jsonrpc(共用框架) · cdp · marionette · fake
+  app.rs domain.rs error.rs ports.rs output.rs extract.rs mcp.rs
+  drivers/   # resolve · jsonrpc · cdp · marionette · fake · pool · discovery
   engines/   # resolve/AVAILABLE · duckduckgo · bing · baidu
 tests/       # 集成测试 + fixtures（离线 HTML golden）
 ```

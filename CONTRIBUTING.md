@@ -40,8 +40,8 @@ cargo machete
 
 - **新增搜索引擎**：复制 `src/engines/duckduckgo.rs` 模式 → 实现 `SearchProvider` → 注册到
   `engines/mod.rs` → 添加 `tests/fixtures/<engine>.html` 与解析单测
-- **实现浏览器后端**：填充 `drivers/cdp.rs` 或 `drivers/marionette.rs`（复用 `drivers/jsonrpc.rs`），
-  同步 `drivers/mod.rs::resolve` 与 `worbrow doctor` 输出
+- **实现浏览器后端**：Firefox（Marionette）与 Chrome/Edge（CDP）均已落地。新增后端 = 新文件
+  + 复用 `drivers/jsonrpc.rs` + 在 `drivers/mod.rs::resolve` 注册一行，并同步 `worbrow doctor`
 - **更新 fixture**：引擎 HTML 改版导致解析失败时，更新对应 fixture 并记录抓取日期
 
 ## 安全

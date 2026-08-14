@@ -226,8 +226,8 @@ make doctor     # run worbrow doctor
 src/
   main.rs    # thin entry + CLI parsing (clap, bin-private)
   lib.rs     # public library surface: top-level re-exports (Config/BrowserKind/..., ADR-006)
-  app.rs domain.rs error.rs ports.rs output.rs extract.rs
-  drivers/   # resolve · jsonrpc(shared framework) · cdp · marionette · fake
+  app.rs domain.rs error.rs ports.rs output.rs extract.rs mcp.rs
+  drivers/   # resolve · jsonrpc · cdp · marionette · fake · pool · discovery
   engines/   # resolve/AVAILABLE · duckduckgo · bing · baidu
 tests/       # integration tests + fixtures (offline HTML golden)
 ```

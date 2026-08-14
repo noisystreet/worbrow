@@ -4,7 +4,7 @@
 //! `resolve` 注册一行。引擎 HTML 改版是常态：解析失败经 `EngineFailure` 上报，
 //! 不破坏输出 schema。
 //!
-//! 公开面仅 `resolve`/`AVAILABLE`；具体引擎实现（bing/duckduckgo）为内部细节，
+//! 公开面仅 `resolve`/`AVAILABLE`；具体引擎实现（bing/duckduckgo/baidu）为内部细节，
 //! 不属稳定 API（ADR-006）。
 
 mod baidu;

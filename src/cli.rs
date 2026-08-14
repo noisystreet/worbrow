@@ -19,7 +19,7 @@ pub struct Cli {
     #[arg(value_name = "QUERY")]
     pub query: Option<String>,
 
-    /// Search engine: comma-separated fallback order (available: duckduckgo, bing)
+    /// Search engine: comma-separated fallback order (available: duckduckgo, bing, baidu)
     // 默认引擎与 `domain::DEFAULT_ENGINE` 保持一致（clap default_value 需字面量）；
     // 变更默认引擎时两处必须同步
     #[arg(long, default_value = "bing,duckduckgo,baidu")]
