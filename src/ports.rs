@@ -28,6 +28,11 @@ pub trait BrowserDriver: Send + Sync {
     async fn eval(&mut self, js: &str) -> Result<serde_json::Value, Error>;
     /// 保存页面截图（调试）。
     async fn screenshot(&mut self, path: &Path) -> Result<(), Error>;
+    /// 是否允许静态 SERP 走 HTTP GET（ADR-011）。默认 `false`（Fake / 测试驱动
+    /// 保持夹具）；真实浏览器后端覆写为 `true`。
+    fn allows_http_serp(&self) -> bool {
+        false
+    }
 }
 
 /// 搜索引擎适配器统一接口。
@@ -46,4 +51,8 @@ pub trait SearchProvider: Send + Sync {
     fn parse(&self, html: &str) -> Result<Vec<SearchResult>, EngineFailure>;
     /// 验证码特征词/选择器启发式。
     fn captcha_heuristics(&self) -> &[&'static str];
+    /// 结果页为静态 HTML 时优先 HTTP GET（失败再回退浏览器）。默认 `false`。
+    fn prefer_http_html(&self) -> bool {
+        false
+    }
 }

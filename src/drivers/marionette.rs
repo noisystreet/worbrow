@@ -265,6 +265,10 @@ impl BrowserDriver for MarionetteDriver {
             ))
         })
     }
+
+    fn allows_http_serp(&self) -> bool {
+        true
+    }
 }
 
 /// Marionette 传输层：TCP 帧协议 + id 匹配（忽略 hello/事件帧）。
