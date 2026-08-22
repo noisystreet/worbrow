@@ -1,0 +1,9 @@
+{
+  "cases": [
+    { "id": "rust-tutorial", "query": "rust教程" },
+    { "id": "top-news", "query": "今日十大新闻" },
+    { "id": "fund-trend", "query": "基金走势" },
+    { "id": "rust-async", "query": "rust async runtime" },
+    { "id": "best-rust-tutorial", "query": "best rust tutorial" }
+  ]
+}

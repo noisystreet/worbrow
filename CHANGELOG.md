@@ -24,6 +24,9 @@ This file records user-visible changes (Keep a Changelog style).
 
 ### Added
 
+- **Search result dump example**：`cargo run --example search_benchmark` / `make bench-search`
+  writes schema v1 JSON per query plus `manifest.json` (no scoring; see [docs/benchmark.md](docs/benchmark.md))
+
 - **静态 SERP HTTP 直抓（ADR-011）**：DuckDuckGo 结果页优先 HTTP GET（失败或解析失败
   再回退 headless 浏览器）；FakeDriver 测试路径不打外网。新增依赖 `reqwest`（rustls）
 

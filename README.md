@@ -201,6 +201,7 @@ make test       # cargo test (mcp enabled by default, CI needs no browser)
 make deny       # cargo-deny license/vulnerability check
 make machete    # unused-dependency check
 make doctor     # run worbrow doctor
+make bench-search  # dump live search JSON for external evaluation (network; docs/benchmark.md)
 ```
 
 ## Search tips
