@@ -28,6 +28,8 @@ base64 = "0.22.1"
 chrono = { version = "0.4.45", features = ["serde"] }
 clap = { version = "4.6.4", features = ["derive"] }
 futures-util = "0.3.33"
+# 静态 SERP HTTP GET（ADR-011）；rustls-tls（ring）便于 musl 静态链接，避免 aws-lc-rs
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "charset"] }
 rmcp = { version = "2.2.0", features = ["schemars", "transport-io"], optional = true }
 scraper = "0.27.0"
 serde = { version = "1.0.229", features = ["derive"] }

@@ -83,6 +83,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-008](adr/0008-retry-and-cache.md) | 网络重试与结果缓存（`--retry` / MCP 短 TTL 缓存） | 已接受 |
 | [ADR-009](adr/0009-fetch-page.md) | 正文抓取与结构化提取（`fetch_page` / `worbrow fetch`） | 已接受 |
 | [ADR-010](adr/0010-fetch-enhance.md) | fetch 补强（`meta.http_status` + `wait_selector` SPA 等待） | 已接受 |
+| [ADR-011](adr/0011-static-html-http.md) | 静态 SERP 优先 HTTP GET；默认引擎链 DDG 优先 | 已接受 |
 
 ---
 
@@ -149,6 +150,7 @@ src/
     discovery.rs      # 浏览器二进制发现
     pool.rs           # MCP 会话池（ADR-007）
     fake.rs           # 测试用 FakeDriver（返回 fixture HTML）
+  http_serp.rs        # 静态 SERP HTTP GET（ADR-011，DDG html 端点）
   engines/
     mod.rs            # 引擎注册表：name → Box<dyn SearchProvider>
     bing.rs
@@ -173,7 +175,7 @@ clap derive 定义参数（示意）：
 | 参数 | 类型 | 默认 | 说明 |
 |---|---|---|---|
 | `<query>` | string | 有子命令时省略 | 搜索词 |
-| `--engine` | string | `bing,duckduckgo,baidu` | 引擎名/降级链；逗号分隔 = 降级尝试顺序（如 `bing,duckduckgo`；可用：`worbrow list` 查看） |
+| `--engine` | string | `duckduckgo,baidu,bing` | 引擎名/降级链；逗号分隔 = 降级尝试顺序（如 `duckduckgo,bing`；可用：`worbrow list` 查看） |
 | `--browser` | enum | `firefox` | 浏览器后端：`firefox`（Marionette，已实现）或 `chrome`（CDP，已实现） |
 | `--max-results` | usize | 10 | 返回条数上限 |
 | `--timeout` | secs | 60 | 全流程硬超时 |
@@ -197,7 +199,7 @@ clap derive 定义参数（示意）：
 run(config) -> Outcome            # CLI：resolve → run_with → Drop 回收
 run_with(&mut driver, config)     # MCP：从会话池 acquire → run_with → 归还（ADR-007）
  1. 解析并校验 query（非空、≤512 字）
- 2. 引擎顺序解析：config.engine 逗号分隔 = 尝试链（如 "bing,duckduckgo"）
+ 2. 引擎顺序解析：config.engine 逗号分隔 = 尝试链（如 "duckduckgo,baidu,bing"）
  3. 取 driver：CLI = driver_registry.resolve(browser)；MCP = SessionPool.acquire()
     （复用长驻浏览器进程，见 roadmap-session-pool.md）
  4. 包整体 timeout(→ 124)，内部为引擎降级循环：
@@ -207,8 +209,9 @@ run_with(&mut driver, config)     # MCP：从会话池 acquire → run_with → 
     c. 低产/低质/离题 → 保留最高产候选（按内容型条数），继续下一引擎
     d. 验证码阻止（captcha 且无结果）或解析失败（EngineFailure）→ 继续下一引擎
     e. 全部尝试完：有候选 → 成功包（low_yield=true）；否则返回最后错误（captcha 优先）
- 5. search_one：驱动 navigate(provider.result_url(query)) + 翻页聚合
- 6. wait_for(结果选择器)，二级超时（预算上限 WAIT_BUDGET=10s）
+ 5. search_one：静态 HTML 引擎（DDG）可 HTTP GET 结果 URL（ADR-011，失败回退浏览器）；
+    否则驱动 navigate(provider.result_url(query)) + 翻页聚合
+ 6. wait_for(结果选择器)，二级超时（预算上限 WAIT_BUDGET=10s；HTTP 命中则跳过）
  7. captcha_heuristics 启发式检测 → 标记 captcha=true（不中止，见 §9）
  8. provider.parse(html) → Vec<SearchResult>（跨页 URL 去重、同域最多 2 条、截断到 max_results）
  9. 可选 screenshot；driver 生命周期：CLI Drop 即回收；MCP 归还池（TTL/健康判定
@@ -524,7 +527,8 @@ fixture 更新纪律：引擎改版导致解析失败时，`engine_error` 上报
 - **V1（已完成，当前 0.2.1 + Unreleased）**：DuckDuckGo / Bing / 百度引擎；Marionette
   （Firefox）与 CDP（Chrome/Edge）；`--json`/超时/验证码检测/截图/`worbrow doctor`；
   MCP stdio（ADR-005）+ 会话池（ADR-007）+ 重试与缓存（ADR-008）；库公开面（ADR-006）；
-  正文抓取与结构化提取（ADR-009 / ADR-010）；引擎降级链与质量门禁（内容型占比 + 相关性）
+  正文抓取与结构化提取（ADR-009 / ADR-010）；引擎降级链与质量门禁（内容型占比 + 相关性）；
+  默认引擎 DDG 优先 + 静态 SERP HTTP 直抓（ADR-011）
 - **V2（未做）**：`--connect` 连接已运行浏览器（跨进程会话复用，ADR-007 明确拒绝本次范围）；
   若需网络拦截等深度控制，再评估引入 chromiumoxide 作第二 CDP 实现（AGENTS.md 硬约束 2 的例外）。
   Google 引擎明确不做（见 [roadmap.md](roadmap.md) 非目标）
@@ -548,7 +552,7 @@ fixture 更新纪律：引擎改版导致解析失败时，`engine_error` 上报
 开放问题：
 1. 二进制命名（已定为 `worbrow`）。
 2. 是否提供 `--proxy`（影响两个后端的启动参数面；尚未实现）。
-3. DuckDuckGo 的 lite/html 版（HTML-only 端点，解析更稳定）是否作为默认端点。
+3. DuckDuckGo 的 html 版作为默认端点（已落地：`html.duckduckgo.com/html/` + ADR-011 HTTP 直抓）。
 
 ---
 

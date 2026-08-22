@@ -106,6 +106,10 @@ impl SearchProvider for DuckDuckGo {
     fn captcha_heuristics(&self) -> &[&'static str] {
         &["anomaly", "challenge", "captcha"]
     }
+
+    fn prefer_http_html(&self) -> bool {
+        true
+    }
 }
 
 /// 静态选择器编译失败视为编程错误。
@@ -230,5 +234,10 @@ mod tests {
     fn captcha_heuristics_covered() {
         let heuristics = DuckDuckGo.captcha_heuristics();
         assert!(heuristics.contains(&"captcha"));
+    }
+
+    #[test]
+    fn prefers_static_http_html() {
+        assert!(DuckDuckGo.prefer_http_html());
     }
 }

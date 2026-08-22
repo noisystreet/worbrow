@@ -19,7 +19,7 @@ Agent 搜索 CLI：驱动**本机 headless 浏览器**（Chrome/Edge 走 CDP，F
 ```bash
 cargo run -- list                    # 列出可用引擎
 cargo run -- doctor                  # 环境自检（浏览器二进制/引擎/后端状态）
-cargo run -- "rust 异步运行时" --json   # 默认引擎 bing→duckduckgo→baidu 降级链、默认超时 60s
+cargo run -- "rust 异步运行时" --json   # 默认引擎 duckduckgo→baidu→bing 降级链、默认超时 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # 翻页聚合 + 语言/地域
 cargo run -- "rust" --freshness week --safesearch strict                       # 时间过滤 + 安全搜索
@@ -243,9 +243,9 @@ make doctor     # 运行 worbrow doctor
   （如「中国基金 数据 网站 天天基金网 蛋卷基金 净值查询」会返回中国维基），结果
   数量正常但完全离题；质量门禁会自动降级到 DuckDuckGo/百度，但更稳的做法是减少
   噪声词——需要精确短语时用双引号（如 `"天天基金网 净值查询"`）
-- **引擎选择**：`--engine duckduckgo`（中文查询实测最稳）、`--engine baidu`
+- **引擎选择**：`--engine duckduckgo`（html 端点，优先 HTTP 直抓，ADR-011）、`--engine baidu`
   （中文长尾，CN 网络直连无验证码）、`--engine bing`（英文查询）；默认链
-  `bing,duckduckgo,baidu` 会在质量门禁不通过时自动尝试下一个
+  `duckduckgo,baidu,bing` 会在质量门禁不通过时自动尝试下一个
 - **查询词质量**：避免堆 `best/learn/教程/推荐` 等高噪声词稀释信号（Bing 易误判
   为词典意图，详见 [roadmap-result-quality.md](docs/roadmap-result-quality.md)）；
   结果不理想时换近义词、加引号或 `site:` 约束
@@ -256,7 +256,7 @@ make doctor     # 运行 worbrow doctor
 src/
   main.rs    # 薄入口 + CLI 参数解析（clap，bin 私有）
   lib.rs     # 库公开面：顶层 re-export（Config/BrowserKind/...，ADR-006）
-  app.rs domain.rs error.rs ports.rs output.rs extract.rs mcp.rs
+  app.rs domain.rs error.rs ports.rs output.rs extract.rs http_serp.rs mcp.rs
   drivers/   # resolve · jsonrpc · cdp · marionette · fake · pool · discovery
   engines/   # resolve/AVAILABLE · duckduckgo · bing · baidu
 tests/       # 集成测试 + fixtures（离线 HTML golden）

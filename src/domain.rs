@@ -5,11 +5,10 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-/// 默认引擎（CLI 与 MCP 共用，design.md §6.1）。
-/// 逗号分隔 = 降级尝试顺序（首选在前）：Bing 冷会话/多词中文查询可能返回离题或
-/// 劣化结果（roadmap-result-quality.md P3），质量门禁不通过时自动尝试 DuckDuckGo；
-/// 百度兜底中文长尾（CN 网络直连无验证码）。
-pub const DEFAULT_ENGINE: &str = "bing,duckduckgo,baidu";
+/// 默认引擎（CLI 与 MCP 共用，design.md §6.1 / ADR-011）。
+/// 逗号分隔 = 降级尝试顺序（首选在前）：DuckDuckGo html 端点与 curl 同源、质量稳定；
+/// 百度兜底中文长尾（CN 网络直连无验证码）；Bing 在 CN + headless 下易劣化，放最后。
+pub const DEFAULT_ENGINE: &str = "duckduckgo,baidu,bing";
 /// 默认浏览器后端（CLI 与 MCP 共用）。
 pub const DEFAULT_BROWSER: &str = "firefox";
 /// 默认返回条数上限。

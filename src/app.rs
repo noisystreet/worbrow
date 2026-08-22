@@ -4,6 +4,7 @@
 //! 硬超时包裹全流程，超时返回 `Error::Timeout`（exit 124）。
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use chrono::Utc;
@@ -16,6 +17,7 @@ use crate::domain::{
 };
 use crate::engines;
 use crate::error::Error;
+use crate::http_serp::{HtmlGet, ReqwestHtmlGet};
 use crate::ports::{BrowserDriver, SearchProvider};
 
 /// 低结果阈值：结果数低于该值时 `meta.low_yield = true`（design.md §10.4）。
@@ -119,6 +121,8 @@ pub struct Config {
     driver: Option<Box<dyn BrowserDriver>>,
     /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
     provider: Option<Box<dyn SearchProvider>>,
+    /// 静态 SERP HTTP GET（ADR-011）；`None` = 生产 [`crate::http_serp::ReqwestHtmlGet`]。
+    html_get: Option<Arc<dyn crate::http_serp::HtmlGet>>,
     /// 瞬时网络错误重试次数（`--retry <n>`；指数退避，封顶）。0 = 不重试（默认）。
     retry: usize,
 }
@@ -144,6 +148,7 @@ impl Config {
             filetype: None,
             driver: None,
             provider: None,
+            html_get: None,
             retry: 0,
         }
     }
@@ -226,6 +231,13 @@ impl Config {
     /// 仅 `Error::Network` 触发重试；验证码/参数错误/超时不重试（避免无意义放大延迟）。
     pub fn with_retry(mut self, retry: usize) -> Self {
         self.retry = retry;
+        self
+    }
+
+    /// 测试注入静态 SERP HTTP 客户端（ADR-011）；生产不要调用。
+    #[cfg(test)]
+    pub(crate) fn with_html_get(mut self, html_get: Arc<dyn crate::http_serp::HtmlGet>) -> Self {
+        self.html_get = Some(html_get);
         self
     }
 
@@ -759,8 +771,14 @@ async fn search_attempt(
     match &config.provider {
         Some(provider) => {
             let name = provider.name();
-            let (html, results, captcha, pages) =
-                search_one(&**provider, query, driver, timeout_dur).await?;
+            let (html, results, captcha, pages) = search_one(
+                &**provider,
+                query,
+                driver,
+                timeout_dur,
+                config.html_get.as_deref(),
+            )
+            .await?;
             let low_yield = content_count(&results) < LOW_YIELD_THRESHOLD;
             Ok((
                 name,
@@ -796,7 +814,14 @@ async fn search_engine_chain(
         tracing::info!(engine = provider.name(), "trying engine");
 
         if let Some((engine, html, results, captcha, pages, low_yield)) = handle_engine_result(
-            search_one(&*provider, query, driver, timeout_dur).await,
+            search_one(
+                &*provider,
+                query,
+                driver,
+                timeout_dur,
+                config.html_get.as_deref(),
+            )
+            .await,
             &*provider,
             query,
             &mut candidate,
@@ -898,6 +923,7 @@ async fn search_one(
     query: &SearchQuery,
     driver: &mut dyn BrowserDriver,
     timeout_dur: Duration,
+    html_get: Option<&dyn crate::http_serp::HtmlGet>,
 ) -> Result<(String, Vec<SearchResult>, bool, usize), Error> {
     let wait_budget = timeout_dur.min(WAIT_BUDGET);
     let mut seen = std::collections::HashSet::new();
@@ -912,7 +938,7 @@ async fn search_one(
     for page in 1..=query.pages {
         fetched_pages += 1;
         let (html, page_captcha, results) =
-            fetch_page(provider, query, driver, page, wait_budget).await?;
+            fetch_page(provider, query, driver, page, wait_budget, html_get).await?;
         captcha |= page_captcha;
         last_html = html;
         // 抽取并去重合并：先按 URL，再按域名截断（防单一来源刷屏）
@@ -950,7 +976,53 @@ async fn search_one(
     Ok((last_html, all, captcha, fetched_pages))
 }
 
-/// 抓取单页：navigate → 等待结果容器 → html → 验证码检测 → 解析。
+fn captcha_detected(html: &str, provider: &dyn SearchProvider) -> bool {
+    let lower = html.to_lowercase();
+    provider
+        .captcha_heuristics()
+        .iter()
+        .any(|h| lower.contains(h))
+}
+
+/// 静态 HTML 引擎的 HTTP 直抓（ADR-011）；失败返回 `None` 由调用方回退浏览器。
+async fn try_static_http(
+    provider: &dyn SearchProvider,
+    url: &url::Url,
+    wait_budget: Duration,
+    html_get: Option<&dyn crate::http_serp::HtmlGet>,
+) -> Option<(String, bool, Vec<SearchResult>)> {
+    let fetched = match html_get {
+        Some(client) => client.get(url, wait_budget).await,
+        None => ReqwestHtmlGet.get(url, wait_budget).await,
+    };
+    match fetched {
+        Ok(html) => match provider.parse(&html) {
+            Ok(results) => {
+                tracing::info!(engine = provider.name(), "static HTML GET adopted");
+                let captcha = captcha_detected(&html, provider);
+                Some((html, captcha, results))
+            }
+            Err(e) => {
+                tracing::warn!(
+                    engine = provider.name(),
+                    code = %e.code,
+                    "static HTML parse failed, falling back to browser"
+                );
+                None
+            }
+        },
+        Err(e) => {
+            tracing::warn!(
+                engine = provider.name(),
+                error = %e,
+                "static HTML GET failed, falling back to browser"
+            );
+            None
+        }
+    }
+}
+
+/// 抓取单页：可选 HTTP 直抓 → navigate → 等待结果容器 → html → 验证码检测 → 解析。
 /// 返回 `(html, 是否检测到验证码, 本页结果)`。
 async fn fetch_page(
     provider: &dyn SearchProvider,
@@ -958,12 +1030,19 @@ async fn fetch_page(
     driver: &mut dyn BrowserDriver,
     page: usize,
     wait_budget: Duration,
+    html_get: Option<&dyn crate::http_serp::HtmlGet>,
 ) -> Result<(String, bool, Vec<SearchResult>), Error> {
     let url = if page == 1 {
         provider.result_url(query)
     } else {
         provider.page_url(query, page)
     };
+    if provider.prefer_http_html()
+        && driver.allows_http_serp()
+        && let Some(hit) = try_static_http(provider, &url, wait_budget, html_get).await
+    {
+        return Ok(hit);
+    }
     let step = Instant::now();
     driver.navigate(url).await?;
     tracing::info!(
@@ -992,11 +1071,7 @@ async fn fetch_page(
     );
 
     // 验证码启发式检测（不中止）
-    let lower = html.to_lowercase();
-    let captcha = provider
-        .captcha_heuristics()
-        .iter()
-        .any(|h| lower.contains(h));
+    let captcha = captcha_detected(&html, provider);
 
     let results = provider.parse(&html)?;
     Ok((html, captcha, results))
@@ -1724,6 +1799,129 @@ mod tests {
         assert_eq!(outcome.meta.engine, "bing", "相关结果不应降级");
         assert_eq!(outcome.meta.engine_tried, vec!["bing"]);
         assert!(!outcome.meta.low_yield);
+    }
+
+    const DDG_FIXTURE: &str = include_str!("../tests/fixtures/duckduckgo.html");
+
+    struct HttpProbeDriver {
+        html: String,
+        navigated: Arc<std::sync::atomic::AtomicBool>,
+        allow_http: bool,
+    }
+
+    #[async_trait::async_trait]
+    impl BrowserDriver for HttpProbeDriver {
+        async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+            self.navigated
+                .store(true, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        }
+        async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+            Ok(())
+        }
+        async fn html(&self) -> Result<String, Error> {
+            Ok(self.html.clone())
+        }
+        async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+            Ok(serde_json::Value::Null)
+        }
+        async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+            Ok(())
+        }
+        fn allows_http_serp(&self) -> bool {
+            self.allow_http
+        }
+    }
+
+    struct OkHtmlGet(String);
+    #[async_trait::async_trait]
+    impl crate::http_serp::HtmlGet for OkHtmlGet {
+        async fn get(&self, _url: &url::Url, _t: Duration) -> Result<String, Error> {
+            Ok(self.0.clone())
+        }
+    }
+
+    struct FailHtmlGet;
+    #[async_trait::async_trait]
+    impl crate::http_serp::HtmlGet for FailHtmlGet {
+        async fn get(&self, _url: &url::Url, _t: Duration) -> Result<String, Error> {
+            Err(Error::Network("injected GET failure".into()))
+        }
+    }
+
+    /// ADR-011：HTTP 解析成功则采用，不导航浏览器。
+    #[tokio::test]
+    async fn static_http_success_skips_browser_navigate() {
+        let navigated = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut driver = HttpProbeDriver {
+            html: "browser-html-must-not-be-used".into(),
+            navigated: Arc::clone(&navigated),
+            allow_http: true,
+        };
+        let cfg = Config::new("rust", "duckduckgo", BrowserKind::Fake)
+            .with_html_get(Arc::new(OkHtmlGet(DDG_FIXTURE.into())))
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut driver, cfg).await.expect("HTTP 应成功");
+        assert!(
+            !navigated.load(std::sync::atomic::Ordering::SeqCst),
+            "HTTP 命中不应 navigate"
+        );
+        assert_eq!(outcome.meta.engine, "duckduckgo");
+        assert_eq!(outcome.results[0].url, "https://example.com/rust");
+    }
+
+    /// ADR-011：HTTP GET 失败回退浏览器 HTML。
+    #[tokio::test]
+    async fn static_http_get_failure_falls_back_to_browser() {
+        let navigated = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut driver = HttpProbeDriver {
+            html: DDG_FIXTURE.into(),
+            navigated: Arc::clone(&navigated),
+            allow_http: true,
+        };
+        let cfg = Config::new("rust", "duckduckgo", BrowserKind::Fake)
+            .with_html_get(Arc::new(FailHtmlGet))
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut driver, cfg).await.expect("应回退浏览器");
+        assert!(
+            navigated.load(std::sync::atomic::Ordering::SeqCst),
+            "GET 失败应 navigate"
+        );
+        assert_eq!(outcome.results[0].url, "https://example.com/rust");
+    }
+
+    /// ADR-011：HTTP 返回无法解析的 HTML 时回退浏览器。
+    #[tokio::test]
+    async fn static_http_parse_failure_falls_back_to_browser() {
+        let navigated = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut driver = HttpProbeDriver {
+            html: DDG_FIXTURE.into(),
+            navigated: Arc::clone(&navigated),
+            allow_http: true,
+        };
+        let cfg = Config::new("rust", "duckduckgo", BrowserKind::Fake)
+            .with_html_get(Arc::new(OkHtmlGet("<html><body>空</body></html>".into())))
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut driver, cfg).await.expect("应回退浏览器");
+        assert!(navigated.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(outcome.results[0].url, "https://example.com/rust");
+    }
+
+    /// ADR-011：`allows_http_serp=false` 时不走 HTTP，夹具不被注入 GET 替换。
+    #[tokio::test]
+    async fn driver_without_http_serp_ignores_static_http() {
+        let navigated = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let mut driver = HttpProbeDriver {
+            html: DDG_FIXTURE.into(),
+            navigated: Arc::clone(&navigated),
+            allow_http: false,
+        };
+        let cfg = Config::new("rust", "duckduckgo", BrowserKind::Fake)
+            .with_html_get(Arc::new(OkHtmlGet("<html><body>空</body></html>".into())))
+            .with_timeout(Duration::from_secs(5));
+        let outcome = run_with(&mut driver, cfg).await.expect("应走浏览器夹具");
+        assert!(navigated.load(std::sync::atomic::Ordering::SeqCst));
+        assert_eq!(outcome.results[0].url, "https://example.com/rust");
     }
 
     // ==== fetch（ADR-009）====

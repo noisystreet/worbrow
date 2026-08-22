@@ -10,18 +10,22 @@ This file records user-visible changes (Keep a Changelog style).
 
 ### Changed
 
+- **默认引擎链改为 `duckduckgo,baidu,bing`（ADR-011）**：DuckDuckGo html 端点与 curl
+  同源、质量更稳；百度兜底中文长尾；Bing 在 CN + headless 下易劣化，改为最后降级。
+  CLI 与 MCP 的 `DEFAULT_ENGINE` 同步；JSON schema / 退出码不变
 - **相关性门禁（P3，roadmap-result-quality.md）**：降级判定叠加查询词重叠检查——当
   结果集（标题/摘要/域名）与查询显著词（长度 ≥3 的多词查询）**零词面重叠**时判为
   离题，自动尝试下一引擎。修复 Bing 对空格分隔多词中文查询锚定首强实体的场景
   （如「中国基金 数据 网站 天天基金网 蛋卷基金 净值查询」恒返回中国维基/百科，
   数量与类型均正常但完全离题），该类结果此前不会被既有数量/占比门禁拦截
-- **默认引擎改为降级链 `bing,duckduckgo,baidu`**（CLI 与 MCP 一致）：Bing 首选满足质量
-  门禁时仍只用 Bing；离题/低质/低产/验证码时自动尝试 DuckDuckGo，中文长尾再兜底百度
 - **相关性门禁阈值细化（P3）**：判定从「零词面重叠」放宽为「命中显著词的结果占比
   < 1/5（20%）」，覆盖部分重叠的弱相关离题（如 10 条中仅 1 条命中）——零重叠是强
   信号但过于严格，占比阈值给降级链更多判断空间
 
 ### Added
+
+- **静态 SERP HTTP 直抓（ADR-011）**：DuckDuckGo 结果页优先 HTTP GET（失败或解析失败
+  再回退 headless 浏览器）；FakeDriver 测试路径不打外网。新增依赖 `reqwest`（rustls）
 
 - **百度引擎（P1，design.md §13 原规划目标）**：新增 `worbrow --engine baidu`（`worbrow list`
   可见）——URL 直访 `baidu.com/s?wd=`，解析 `div.result` 容器；真实目标 URL 取自容器

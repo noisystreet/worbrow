@@ -310,6 +310,10 @@ impl BrowserDriver for CdpDriver {
             ))
         })
     }
+
+    fn allows_http_serp(&self) -> bool {
+        true
+    }
 }
 
 /// 导航后等待 `document.readyState == "complete"`（对齐 Firefox pageLoad 语义）。

@@ -59,6 +59,7 @@ pub mod engines;
 pub mod error;
 pub use error::Error;
 pub(crate) mod extract;
+pub(crate) mod http_serp;
 #[cfg(feature = "mcp")]
 pub mod mcp;
 pub mod output;

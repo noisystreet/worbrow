@@ -230,7 +230,7 @@ async fn tools_call_runs_web_search_via_fake_driver() {
     let payload: Value = serde_json::from_str(text).expect("工具输出应是 JSON");
     assert_eq!(payload["schema_version"], 1);
     assert_eq!(payload["query"], "rust async");
-    assert_eq!(payload["meta"]["engine"], "bing"); // 默认引擎链首选 bing 满足即采用
+    assert_eq!(payload["meta"]["engine"], "bing"); // fake SMOKE_HTML 为 Bing 结构，DDG/百度解析失败后采用 Bing
     // fake 后端返回模拟结果页（SMOKE_HTML = bing 结构，3 条 ≥ 低产量阈值）
     assert_eq!(payload["results"].as_array().map(Vec::len), Some(3));
     // 结果条目携带 domain/https（agent 免解析判断来源）

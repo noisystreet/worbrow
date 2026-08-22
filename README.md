@@ -17,7 +17,7 @@ Prerequisites: Chrome/Edge (>= 109) or Firefox (>= 55) installed on the system.
 ```bash
 cargo run -- list                    # list available engines
 cargo run -- doctor                  # environment self-check (browser binaries/engines/backend status)
-cargo run -- "rust async runtime" --json   # default engine bing→duckduckgo→baidu fallback, default timeout 60s
+cargo run -- "rust async runtime" --json   # default engine duckduckgo→baidu→bing fallback, default timeout 60s
 cargo run -- "rust" --engine duckduckgo --timeout 30 --max-results 5
 cargo run -- "rust" --pages 2 --max-results 15 --lang zh-hans --region zh-CN   # multi-page aggregation + language/region
 cargo run -- "rust" --freshness week --safesearch strict                       # freshness filter + safe search
@@ -211,10 +211,10 @@ make doctor     # run worbrow doctor
   off-topic. The relevance gate falls back to DuckDuckGo/Baidu automatically, but
   it is more reliable to cut noisy terms; use double quotes for exact phrases
   (e.g. `"天天基金网 净值查询"`)
-- **Engine choice**: `--engine duckduckgo` (most reliable for Chinese queries in
-  practice), `--engine baidu` (Chinese long-tail; reachable from CN networks with
+- **Engine choice**: `--engine duckduckgo` (html endpoint; HTTP GET first, ADR-011),
+  `--engine baidu` (Chinese long-tail; reachable from CN networks with
   no CAPTCHA wall), `--engine bing` (English queries); the default chain
-  `bing,duckduckgo,baidu` tries the next engine when the quality gates fail
+  `duckduckgo,baidu,bing` tries the next engine when the quality gates fail
 - **Query quality**: avoid piling up high-noise words such as `best`/`learn`
   (Bing tends to misclassify them as dictionary intent; see
   [docs/roadmap-result-quality.md](docs/roadmap-result-quality.md)); rephrase with
@@ -226,7 +226,7 @@ make doctor     # run worbrow doctor
 src/
   main.rs    # thin entry + CLI parsing (clap, bin-private)
   lib.rs     # public library surface: top-level re-exports (Config/BrowserKind/..., ADR-006)
-  app.rs domain.rs error.rs ports.rs output.rs extract.rs mcp.rs
+  app.rs domain.rs error.rs ports.rs output.rs extract.rs http_serp.rs mcp.rs
   drivers/   # resolve · jsonrpc · cdp · marionette · fake · pool · discovery
   engines/   # resolve/AVAILABLE · duckduckgo · bing · baidu
 tests/       # integration tests + fixtures (offline HTML golden)

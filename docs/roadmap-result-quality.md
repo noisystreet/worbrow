@@ -89,11 +89,10 @@ agent **事先知道答案在哪个站**，污染发生时无从指定，不通�
 中国维基/百科 9-10 条，数量/占比均达标）现有门禁无法识别 |
 | 目标 | 降级判定叠加**词面重叠检查**：多词查询（≥2 原始词）中显著词（长度 ≥3，过滤
 「数据/网站」类短泛词）与结果集（标题+摘要+域名，小写）命中占比 **< 1/5（20%）**
-→ 判离题 → 自动尝试下一引擎（默认引擎链 `bing,duckduckgo,baidu`，Bing 满足质量
-门禁时仍只用 Bing） |
+→ 判离题 → 自动尝试下一引擎（默认引擎链 `duckduckgo,baidu,bing`，ADR-011） |
 | 改动点 | ① [app.rs](../src/app.rs) 新增 `relevant()`（纯词面统计，无 LM；`RELEVANT_HIT_RATIO`
 整数比例 1/5 阈值）；② [domain.rs](../src/domain.rs)/[cli.rs](../src/cli.rs) `DEFAULT_ENGINE`
-→ `"bing,duckduckgo,baidu"` |
+→ `"duckduckgo,baidu,bing"` |
 | 契约影响 | 无新增字段/错误码；`meta.low_yield` 语义不变（单引擎离题时兜底标记 true） |
 | 验证 | 真实故障样本单测（中国维基集群判离题、基金站点判相关、短泛词不命中、部分
 重叠占比阈值）+ 集成测试（离题集群触发降级 ddg、单引擎离题不崩溃、相关多词结果

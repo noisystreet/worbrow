@@ -9,7 +9,7 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 
 当前已稳定：
 
-- **引擎**：duckduckgo、bing、baidu；默认降级链 `bing,duckduckgo,baidu`；解析失败走 `EngineFailure`（exit 4）
+- **引擎**：duckduckgo、bing、baidu；默认降级链 `duckduckgo,baidu,bing`（ADR-011）；解析失败走 `EngineFailure`（exit 4）
 - **浏览器后端**：Firefox（Marionette）与 Chrome/Edge（CDP）均已实现；`fake` 供 CI 冒烟
 - **MCP**：`web_search` / `fetch_page` / `list_engines` / `doctor`；空闲超时；会话池（ADR-007）；短 TTL 缓存（ADR-008）
 - **契约**：schema v1、退出码语义冻结、stdout 仅 JSON
@@ -148,7 +148,8 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 > `engines/baidu.rs` URL 直访 `baidu.com/s?wd=`，解析 `div.result` 容器，真实目标
 > URL 取自容器 `mu` 属性（href 为不可本地解码的 `baidu.com/link` 跳转链，
 > `url_resolved=true`，缺失回退链式 URL）；CN 网络直连无验证码（对比 Google 实测
-> 被验证码墙拦截）；默认引擎链扩展为 `bing,duckduckgo,baidu`。
+> 被验证码墙拦截）；当时默认引擎链扩展为 `bing,duckduckgo,baidu`（后由 ADR-011 改为
+> `duckduckgo,baidu,bing`）。
 
 ## 4. 实施顺序
 
