@@ -1,6 +1,8 @@
 //! 真机冒烟测试：需要本机 Firefox（CI 不运行；`cargo test -- --ignored`）。
 //!
-//! 说明：测试仅访问 `data:`/`about:` 页面，不依赖外网，可在无外网沙盒验证后端链路。
+//! 说明：测试仅访问 `about:` 与 `127.0.0.1`（以及无效本机端口）。新版 Firefox
+//! Marionette 拒绝 `WebDriver:Navigate` 到 `data:`（unsupported operation），
+//! 协议冒烟改走本地 HTTP 页，仍不依赖外网。
 
 use std::process::Command;
 use std::time::Duration;
@@ -15,6 +17,31 @@ use worbrow::error::Error;
 /// 所有 spawn 浏览器的测试开头获取该锁。
 static PROC_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
+
+/// 在 127.0.0.1 随机端口提供固定 HTML，供 Marionette 导航（替代已禁用的 data: URL）。
+fn serve_html(html: &'static str) -> Url {
+    use std::io::{Read, Write};
+
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("bind 应成功");
+    let port = listener.local_addr().expect("local_addr 应成功").port();
+    std::thread::spawn(move || {
+        for stream in listener.incoming() {
+            let Ok(mut stream) = stream else {
+                continue;
+            };
+            let mut buf = [0u8; 4096];
+            let _ = stream.read(&mut buf);
+            let body = html.as_bytes();
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = stream.write_all(header.as_bytes());
+            let _ = stream.write_all(body);
+        }
+    });
+    Url::parse(&format!("http://127.0.0.1:{port}/")).expect("localhost URL 应合法")
+}
 
 /// 统计本工具启动的 Firefox（按临时 profile 路径特征隔离，避免与其他测试/系统进程互相干扰）。
 fn firefox_count() -> usize {
@@ -109,18 +136,16 @@ async fn search_timeout_recycles_browser() {
     assert_eq!(firefox_count(), before, "搜索超时后 Firefox 应被回收");
 }
 
-/// 后端完整链路（无外网依赖）：spawn → navigate(data URL) → wait_for → html → eval → screenshot。
+/// 后端完整链路（无外网依赖）：spawn → navigate(本机 HTML) → wait_for → html → eval → screenshot。
 #[tokio::test]
 #[ignore = "需要本机 Firefox"]
-async fn end_to_end_on_data_url() {
+async fn end_to_end_on_local_html() {
     let _lock = PROC_LOCK.lock().await;
     let mut driver = drivers::resolve(BrowserKind::Firefox)
         .await
         .expect("spawn 应成功（需要本机 Firefox）");
 
-    let url =
-        Url::parse("data:text/html,<h1 id%3D%22t%22>hello</h1><p class%3D%22r%22>snippet</p>")
-            .expect("data URL 应合法");
+    let url = serve_html("<h1 id=\"t\">hello</h1><p class=\"r\">snippet</p>");
     driver.navigate(url).await.expect("navigate 应成功");
 
     // wait_for：结果选择器轮询
@@ -161,7 +186,7 @@ async fn wait_for_missing_selector_times_out() {
         .expect("spawn 应成功（需要本机 Firefox）");
 
     driver
-        .navigate(Url::parse("data:text/html,<p>hi</p>").expect("data URL 应合法"))
+        .navigate(serve_html("<p>hi</p>"))
         .await
         .expect("navigate 应成功");
 
