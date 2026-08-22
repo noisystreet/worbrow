@@ -516,6 +516,7 @@ pub trait SearchProvider: Send + Sync {
 | 端到端（集成） | FakeDriver + fixture → app::run → 校验 JSON/退出码 | 无浏览器 |
 | golden 回归 | `tests/fixtures/<engine>.html` 提交入库，解析输出快照对比 | 无浏览器 |
 | 真机冒烟 | `tests/firefox_smoke.rs` / `cdp_smoke.rs`（`#[ignore]`）：协议回归，仅访问 data:/about:/127.0.0.1 | CI smoke job 预装浏览器；不依赖外网 |
+| 实搜导出 | `examples/search_benchmark.rs`：按查询列表跑搜索，写出 schema v1 JSON + manifest；**不打分**（评价外包） | 需外网；不进默认 `cargo test` / CI |
 
 fixture 更新纪律：引擎改版导致解析失败时，`engine_error` 上报 + 人更新 fixture（记录抓取日期）。
 默认 `cargo test` 不依赖真实浏览器；CI 另有 smoke job 跑 ignored 真机冒烟。

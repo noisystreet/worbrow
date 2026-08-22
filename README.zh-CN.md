@@ -235,6 +235,7 @@ make test       # cargo test（默认含 mcp，CI 无需浏览器）
 make deny       # cargo-deny 许可/漏洞检查
 make machete    # 未使用依赖检查
 make doctor     # 运行 worbrow doctor
+make bench-search  # 导出实搜 JSON 供外部评价（需外网；见 docs/benchmark.md）
 ```
 
 ## 搜索建议
