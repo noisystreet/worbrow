@@ -515,7 +515,7 @@ pub trait SearchProvider: Send + Sync {
 | 解析单元测试 | 引擎 `parse(fixture_html)` 断言结果字段 | 无浏览器 |
 | 端到端（集成） | FakeDriver + fixture → app::run → 校验 JSON/退出码 | 无浏览器 |
 | golden 回归 | `tests/fixtures/<engine>.html` 提交入库，解析输出快照对比 | 无浏览器 |
-| 真机冒烟 | `tests/firefox_smoke.rs` / `cdp_smoke.rs`（`#[ignore]`）：协议回归，仅访问 data:/about:/127.0.0.1 | CI smoke job 预装浏览器；不依赖外网 |
+| 真机冒烟 | `tests/firefox_smoke.rs` / `cdp_smoke.rs`（`#[ignore]`）：协议回归，仅访问 about:/127.0.0.1（Chrome 仍可用 data:；Firefox Marionette 已拒绝 data: 导航） | CI smoke job 预装浏览器；不依赖外网 |
 | 实搜导出 | `examples/search_benchmark.rs`：按查询列表跑搜索，写出 schema v1 JSON + manifest；**不打分**（评价外包） | 需外网；不进默认 `cargo test` / CI |
 
 fixture 更新纪律：引擎改版导致解析失败时，`engine_error` 上报 + 人更新 fixture（记录抓取日期）。
