@@ -24,6 +24,10 @@ This file records user-visible changes (Keep a Changelog style).
 
 ### Added
 
+- **广告不计入内容型 + 展开 DDG `y.js`**：`is_ad` 或 SERP 广告 href（`y.js` / Bing
+  `aclick`）不计入质量门禁；截断前广告排到最后。`normalize_url` 展开 `y.js?u3=`
+  及嵌套的 Bing `aclick?u=`（与既有 `uddg` / `ck/a` 同为尽力解跳转）。
+
 - **枢纽页质量信号（ADR-012）**：`result_kind` 新增 `hub`（站点/频道首页）；不计入
   内容型条数，高枢纽占比时降级下一引擎；截断前内容页优先重排
 

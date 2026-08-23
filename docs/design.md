@@ -263,7 +263,7 @@ pub struct SearchResult {
     pub https: bool,          // scheme 是否为 https
     pub published_at: Option<String>, // 发布日期（摘要尽力提取；格式随引擎变化）
     pub is_ad: bool,          // 广告位结果（Bing 选择器已排除恒 false；DDG 标记）
-    pub url_resolved: bool,   // 是否已解跳转（uddg/ck-a 展开为真实目标）
+    pub url_resolved: bool,   // 是否已解跳转（uddg / y.js / ck-a / aclick）
     pub result_kind: ResultKind, // web/dictionary/translation/hub（URL 特征，质量降级）
 }
 

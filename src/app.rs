@@ -37,22 +37,25 @@ const LOAD_POLL: Duration = Duration::from_millis(200);
 const HTTP_STATUS_JS: &str = "(() => { const n = performance.getEntriesByType('navigation')[0]; return n ? (n.responseStatus || null) : null; })()";
 
 /// 内容型（`ResultKind::Web`）结果数：质量降级信号核心（roadmap-result-quality.md）。
-/// 词典/翻译/枢纽页不计入——高产低质（全词典或门户首页）不再满足降级判定，
-/// 自动尝试下一引擎。
+/// 词典/翻译/枢纽页/广告不计入——高产低质不再满足降级判定，自动尝试下一引擎。
 fn content_count(results: &[SearchResult]) -> usize {
     results
         .iter()
-        .filter(|r| r.result_kind == crate::domain::ResultKind::Web)
+        .filter(|r| r.result_kind == crate::domain::ResultKind::Web && !r.is_ad)
         .count()
 }
 
-/// 同引擎内：内容页优先于枢纽/词典/翻译，再截断到 max_results（ADR-012）。
+/// 同引擎内：有机内容页优先，广告最后，再截断到 max_results（ADR-012）。
 fn prefer_content_pages(results: &mut [SearchResult]) {
-    results.sort_by_key(|r| match r.result_kind {
-        crate::domain::ResultKind::Web => 0u8,
-        crate::domain::ResultKind::Hub => 1,
-        crate::domain::ResultKind::Dictionary => 2,
-        crate::domain::ResultKind::Translation => 3,
+    results.sort_by_key(|r| {
+        let ad = u8::from(r.is_ad);
+        let kind = match r.result_kind {
+            crate::domain::ResultKind::Web => 0u8,
+            crate::domain::ResultKind::Hub => 1,
+            crate::domain::ResultKind::Dictionary => 2,
+            crate::domain::ResultKind::Translation => 3,
+        };
+        (ad, kind)
     });
 }
 
@@ -865,7 +868,7 @@ async fn handle_engine_result(
 ) -> Result<Option<(&'static str, String, Vec<SearchResult>, bool, usize, bool)>, Error> {
     match result {
         Ok((html, results, captcha, pages)) => {
-            // 满意：内容型（web）结果集满请求量或非低产（≥ 阈值），web 占比 ≥ 50%，
+            // 满意：内容型（web 且非广告）结果集满请求量或非低产（≥ 阈值），web 占比 ≥ 50%，
             // 且与查询词有重叠（P3 相关性门禁）。枢纽页不计入内容型（ADR-012）。
             let content = content_count(&results);
             let web_ratio_ok = content * 2 >= results.len();
@@ -955,7 +958,7 @@ async fn search_one(
             if !seen.insert(r.url.clone()) {
                 continue;
             }
-            if query.site.is_none() && !r.domain.is_empty() {
+            if query.site.is_none() && !r.domain.is_empty() && !r.is_ad {
                 let n = domain_count.entry(r.domain.clone()).or_insert(0);
                 if *n >= DOMAIN_LIMIT {
                     continue; // 该域名已达上限，丢弃（rank 靠前已保留）
@@ -964,8 +967,9 @@ async fn search_one(
             }
             all.push(r);
         }
-        // 已集满 max_results 可提前停止翻页
-        if all.len() >= query.max_results {
+        // 有机条数够即可停翻页，避免首页塞满广告后不再取下一页
+        let organic = all.iter().filter(|r| !r.is_ad).count();
+        if organic >= query.max_results {
             break;
         }
     }
@@ -1446,6 +1450,46 @@ mod tests {
                 .iter()
                 .all(|r| r.result_kind == crate::domain::ResultKind::Web)
         );
+    }
+
+    /// 广告不计内容型：截断时排到最后并被丢掉，腾出有机结果。
+    #[tokio::test]
+    async fn ads_sort_last_and_drop_when_truncating() {
+        const HTML: &str = r#"<html><body>
+          <div class="result"><a class="result__a" href="https://duckduckgo.com/y.js?u3=https%3A%2F%2Fads.example.com%2Fx">广告</a><a class="result__snippet">sponsored train</a></div>
+          <div class="result"><a class="result__a" href="https://example.com/a">有机甲</a><a class="result__snippet">schedule a</a></div>
+          <div class="result"><a class="result__a" href="https://example.org/b">有机乙</a><a class="result__snippet">schedule b</a></div>
+        </body></html>"#;
+
+        struct HtmlDriver;
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for HtmlDriver {
+            async fn navigate(&mut self, _url: url::Url) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                Ok(HTML.to_string())
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = HtmlDriver;
+        let cfg = Config::new("train schedule", "duckduckgo", BrowserKind::Fake)
+            .with_max_results(2)
+            .with_timeout(Duration::from_secs(10));
+        let outcome = run_with(&mut driver, cfg).await.expect("应成功");
+        assert_eq!(outcome.results.len(), 2);
+        assert!(outcome.results.iter().all(|r| !r.is_ad), "广告应被截掉");
+        assert_eq!(outcome.results[0].url, "https://example.com/a");
+        assert_eq!(outcome.results[1].url, "https://example.org/b");
     }
 
     /// 回归：首引擎内容型结果足够（≥ 阈值）→ 不降级、不误报低产。
