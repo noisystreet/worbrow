@@ -24,6 +24,9 @@ This file records user-visible changes (Keep a Changelog style).
 
 ### Added
 
+- **枢纽页质量信号（ADR-012）**：`result_kind` 新增 `hub`（站点/频道首页）；不计入
+  内容型条数，高枢纽占比时降级下一引擎；截断前内容页优先重排
+
 - **Search result dump example**：`cargo run --example search_benchmark` / `make bench-search`
   writes schema v1 JSON per query plus `manifest.json` (no scoring; see [docs/benchmark.md](docs/benchmark.md))
 

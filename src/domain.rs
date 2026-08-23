@@ -53,19 +53,21 @@ impl SearchQuery {
     }
 }
 
-/// 结果类型（质量自检信号，roadmap-result-quality.md）。
+/// 结果类型（质量自检信号，roadmap-result-quality.md / ADR-012）。
 ///
 /// 解析层按 URL 特征标记，供引擎降级判定"内容型结果数"与 agent 自行过滤噪声；
 /// 识别失败一律回退 `Web`（尽力语义，不因特征误判丢结果）。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ResultKind {
-    /// 内容页（默认；词典/翻译等污染之外的常规结果）
+    /// 内容页（默认；词典/翻译/枢纽之外的常规结果）
     Web,
     /// 词典释义页（如 iciba/cambridge/eudic 的 `word`/`dict` 路径）
     Dictionary,
     /// 翻译页（如 fanyi.baidu.com / fanyi.so）
     Translation,
+    /// 站点/频道首页（空路径或仅通用频道段；不计入内容型条数，ADR-012）
+    Hub,
 }
 
 /// 单条搜索结果（DTO，跨边界唯一传递形态，禁止泄漏 DOM 结构）。

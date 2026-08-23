@@ -99,7 +99,7 @@ worbrow 是驱动本机 headless 浏览器执行搜索引擎搜索的 agent CLI�
 | 项 | 内容 |
 |---|---|
 | 现状 | 降级判定只看数量（`results.len() >= LOW_YIELD_THRESHOLD`）；Bing 对含常见英文词查询（如 `best`/`learn`）返回"词典释义"结果时，10 条高产低质不触发降级（真实案例见专项文档） |
-| 目标 | 引擎自检结果质量：URL 特征标记 `result_kind`（web/dictionary/translation）；降级判定按"**内容型**结果数"≥ 阈值，低质自动尝试下一引擎，不依赖 agent 输入（对比 `site:` 需事先知道答案站点，不通用） |
+| 目标 | 引擎自检结果质量：URL 特征标记 `result_kind`（web/dictionary/translation/hub）；降级判定按"**内容型**结果数"（仅 `web`）≥ 阈值，低质自动尝试下一引擎，不依赖 agent 输入（对比 `site:` 需事先知道答案站点，不通用） |
 | 改动点 | ① [extract.rs](../src/extract.rs) 新增 `result_kind(url)` 类型识别（URL 路径/主机特征，跨引擎共享，识别失败回退 `web`）；② [domain.rs](../src/domain.rs) `SearchResult` 新增 `result_kind`；③ [app.rs](../src/app.rs) 降级判定改用内容型结果数（`satisfied` 条件升级，候选兜底按内容型择优） |
 | 契约影响 | 结果对象新增 `result_kind` 字段（schema v1 **只增不改**，允许）；`low_yield` 语义扩展（数量低 → 内容型结果不足），字段与错误码不变 |
 | 验证 | 特征库单测（真实污染 URL 样本：iciba/剑桥/eudic/fanyi）+ 集成测试（全词典结果触发降级 engine_tried、首引擎内容型不降级回归） |

@@ -195,11 +195,20 @@ mod tests {
         assert_eq!(results[2].url, "http://www.baidu.com/link?url=ghi789");
         assert!(!results[2].url_resolved);
         assert_eq!(results[2].domain, "www.baidu.com");
-        // fixture URL 均为正常内容页 → result_kind 恒 web
-        assert!(
-            results
-                .iter()
-                .all(|r| r.result_kind == crate::domain::ResultKind::Web)
+        assert_eq!(
+            results[0].result_kind,
+            crate::domain::ResultKind::Hub,
+            "天天基金根路径是枢纽页"
+        );
+        assert_eq!(
+            results[1].result_kind,
+            crate::domain::ResultKind::Hub,
+            "/data/ 频道页是枢纽页"
+        );
+        assert_eq!(
+            results[2].result_kind,
+            crate::domain::ResultKind::Web,
+            "百度跳转链无文章形态，回退 Web"
         );
     }
 

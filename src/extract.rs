@@ -12,6 +12,8 @@ use crate::domain::ResultKind;
 /// `Web`（尽力语义，不因误判丢结果）。路径段**精确匹配**（非子串），避免
 /// wordpress 类正常站点误判；主机模式用**前缀**（`fanyi.`/`translate.`），避免
 /// 普通域名中偶含特征词（如 notfanyiso.example.com）被误判。
+///
+/// 枢纽页（ADR-012）：站点根路径或仅「频道/locale」段，不按域名黑名单枚举。
 pub fn result_kind(raw: &str) -> ResultKind {
     let Ok(url) = Url::parse(raw) else {
         return ResultKind::Web;
@@ -42,7 +44,165 @@ pub fn result_kind(raw: &str) -> ResultKind {
     {
         return ResultKind::Dictionary;
     }
+    if is_hub(host, &segments) {
+        return ResultKind::Hub;
+    }
     ResultKind::Web
+}
+
+/// 代码托管：仓库/用户路径视为内容页，即使只有两段。
+fn is_code_host(host: &str) -> bool {
+    let host = host.trim_start_matches("www.");
+    host == "github.com"
+        || host == "gitlab.com"
+        || host == "gitee.com"
+        || host == "codeberg.org"
+        || host == "bitbucket.org"
+        || host.ends_with(".github.io")
+}
+
+fn is_index_file(seg: &str) -> bool {
+    matches!(
+        seg,
+        "index.html" | "index.htm" | "index.php" | "default.aspx" | "default.asp" | "home.html"
+    )
+}
+
+fn is_locale_segment(seg: &str) -> bool {
+    matches!(
+        seg,
+        "zh" | "zh-cn"
+            | "zh-tw"
+            | "zh-hans"
+            | "zh-hant"
+            | "en"
+            | "en-us"
+            | "en-gb"
+            | "ja"
+            | "jp"
+            | "ko"
+            | "fr"
+            | "de"
+            | "es"
+            | "ru"
+            | "pt"
+            | "it"
+            | "simp"
+            | "trad"
+            | "cn"
+            | "tw"
+            | "hk"
+            | "zhongwen"
+            | "chinese"
+    )
+}
+
+/// 频道/栏目名（精确段），不是域名列表。
+fn is_generic_hub_segment(seg: &str) -> bool {
+    if seg.starts_with("list_") || seg.starts_with("list-") {
+        return true;
+    }
+    matches!(
+        seg,
+        "news"
+            | "hotnews"
+            | "china"
+            | "data"
+            | "home"
+            | "index"
+            | "list"
+            | "lists"
+            | "category"
+            | "categories"
+            | "channel"
+            | "channels"
+            | "c"
+            | "topic"
+            | "topics"
+            | "market"
+            | "markets"
+            | "quote"
+            | "quotes"
+            | "finance"
+            | "stock"
+            | "stocks"
+            | "fund"
+            | "funds"
+            | "weather"
+            | "forecast"
+            | "train"
+            | "trains"
+            | "gaotie"
+            | "hot"
+            | "today"
+            | "latest"
+            | "live"
+            | "ranking"
+            | "rank"
+            | "video"
+            | "videos"
+    )
+}
+
+fn looks_like_article_id(seg: &str) -> bool {
+    let stem = seg.split('.').next().unwrap_or(seg);
+    if stem.chars().all(|c| c.is_ascii_digit()) && stem.len() >= 6 {
+        return true;
+    }
+    if stem.len() >= 16
+        && stem
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return true;
+    }
+    let mut run = 0usize;
+    for c in stem.chars() {
+        if c.is_ascii_digit() {
+            run += 1;
+            if run >= 8 {
+                return true;
+            }
+        } else {
+            run = 0;
+        }
+    }
+    false
+}
+
+fn has_document_extension(seg: &str) -> bool {
+    let Some((_, ext)) = seg.rsplit_once('.') else {
+        return false;
+    };
+    matches!(
+        ext,
+        "html" | "htm" | "shtml" | "php" | "aspx" | "asp" | "pdf" | "md"
+    )
+}
+
+/// 枢纽页：根路径、剥 locale/index 后为空、或只剩通用频道段。
+fn is_hub(host: &str, raw_segments: &[&str]) -> bool {
+    let mut segs: Vec<String> = raw_segments
+        .iter()
+        .map(|s| s.to_ascii_lowercase())
+        .collect();
+    if segs.last().is_some_and(|s| is_index_file(s)) {
+        segs.pop();
+    }
+    segs.retain(|s| !is_locale_segment(s));
+    if is_code_host(host) && !segs.is_empty() {
+        return false;
+    }
+    if segs.is_empty() {
+        return true;
+    }
+    if segs.last().is_some_and(|s| looks_like_article_id(s)) {
+        return false;
+    }
+    if segs.last().is_some_and(|s| has_document_extension(s)) {
+        return false;
+    }
+    segs.iter().all(|s| is_generic_hub_segment(s))
 }
 
 /// 清洗标题/摘要：剥离控制字符、折叠多余空白（HTML 实体已由 scraper 解码）。
@@ -527,6 +687,41 @@ mod tests {
             result_kind("https://translate.yandex.com/"),
             ResultKind::Translation
         );
+    }
+
+    /// 枢纽页（ADR-012）：实搜 dump 中的门户首页/频道页 → Hub。
+    #[test]
+    fn result_kind_marks_hub_urls() {
+        let hubs = [
+            "https://www.toutiao.com/",
+            "https://www.12306.cn/",
+            "https://fund.eastmoney.com/",
+            "https://tophub.today/c/news",
+            "https://news.sina.com.cn/hotnews/",
+            "https://news.cctv.com/china/",
+            "https://www.thepaper.cn/list_25429",
+            "https://www.bbc.com/zhongwen/simp",
+            "https://fund.eastmoney.com/data/",
+        ];
+        for url in hubs {
+            assert_eq!(result_kind(url), ResultKind::Hub, "{url}");
+        }
+    }
+
+    /// 文章、仓库、带 locale 的文档站仍为 Web。
+    #[test]
+    fn result_kind_keeps_content_urls_as_web() {
+        let pages = [
+            "https://www.toutiao.com/article/7452276270291829259/",
+            "https://www.runoob.com/rust/rust-tutorial.html",
+            "https://github.com/EmbarkStudios/cargo-deny",
+            "https://www.weather.com.cn/weather/101020100.shtml",
+            "https://www.debian.org/releases/trixie/",
+            "https://rust-lang.org/zh-CN/learn/",
+        ];
+        for url in pages {
+            assert_eq!(result_kind(url), ResultKind::Web, "{url}");
+        }
     }
 
     /// 回退语义与防误判：正常内容页/特征子串站 → Web。
