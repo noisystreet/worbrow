@@ -215,36 +215,99 @@ pub fn clean_text(s: &str) -> String {
         .join(" ")
 }
 
-/// 归一化结果链接：补齐协议相对链接、展开跳转参数（uddg / Bing ck/a）、去 fragment。
+/// 归一化结果链接：补齐协议相对链接、展开跳转参数（uddg / DDG y.js / Bing ck/a 与 aclick）、去 fragment。
 ///
-/// 返回 `(url, resolved)`：`resolved=true` 表示发生了跳转链展开（uddg/ck-a 解码成功），
-/// `url` 已尽力解为真实目标；`false` 表示原样返回（含 ck/a 解码失败保持链式 URL），
+/// 返回 `(url, resolved)`：`resolved=true` 表示发生了跳转链展开，
+/// `url` 已尽力解为真实目标；`false` 表示原样返回（含解码失败保持链式 URL），
 /// 供 `SearchResult.url_resolved` 标记。
 pub fn normalize_url(raw: &str) -> (String, bool) {
+    normalize_url_depth(raw, 0)
+}
+
+const MAX_REDIRECT_UNWRAP: u8 = 4;
+
+fn normalize_url_depth(raw: &str, depth: u8) -> (String, bool) {
     // DuckDuckGo html 版使用协议相对链接
     let raw = if let Some(rest) = raw.strip_prefix("//") {
         format!("https://{rest}")
     } else {
         raw.to_string()
     };
-    let Ok(mut url) = Url::parse(&raw) else {
+    let Ok(url) = Url::parse(&raw) else {
         return (raw, false);
     };
+    if depth >= MAX_REDIRECT_UNWRAP {
+        let mut url = url;
+        url.set_fragment(None);
+        return (url.to_string(), depth > 0);
+    }
     // 展开 DDG 跳转参数 uddg（真实目标）
     if let Some((_, target)) = url
         .query_pairs()
         .find(|(k, _)| k == "uddg")
         .map(|(k, v)| (k.into_owned(), v.into_owned()))
     {
-        let (target, _) = normalize_url(&target);
+        if target.is_empty() {
+            let mut url = url;
+            url.set_fragment(None);
+            return (url.to_string(), false);
+        }
+        let (target, _) = normalize_url_depth(&target, depth + 1);
         return (target, true);
     }
-    // 展开 Bing 点击追踪链 ck/a（解码失败保持原样）
+    if let Some(target) = expand_ddg_yjs(&url) {
+        let (target, _) = normalize_url_depth(&target, depth + 1);
+        return (target, true);
+    }
+    // 展开 Bing 点击追踪链（解码失败保持原样）
     if let Some(expanded) = expand_bing_ck(&url) {
+        let (expanded, _) = normalize_url_depth(&expanded, depth + 1);
         return (expanded, true);
     }
+    if let Some(expanded) = expand_bing_aclick(&url) {
+        let (expanded, _) = normalize_url_depth(&expanded, depth + 1);
+        return (expanded, true);
+    }
+    let mut url = url;
     url.set_fragment(None);
     (url.to_string(), false)
+}
+
+/// DDG 广告点击 `y.js?u3=`（html SERP 可能把广告插在普通结果位，无 `result--ad` class）。
+fn expand_ddg_yjs(url: &Url) -> Option<String> {
+    let host = url.host_str()?;
+    if !matches!(
+        host,
+        "duckduckgo.com" | "www.duckduckgo.com" | "html.duckduckgo.com"
+    ) {
+        return None;
+    }
+    if url.path() != "/y.js" {
+        return None;
+    }
+    url.query_pairs()
+        .find(|(k, _)| k == "u3")
+        .map(|(_, v)| v.into_owned())
+        .filter(|s| !s.is_empty())
+}
+
+/// SERP 广告跳转链（展开前的 href）：DDG `y.js` 或 Bing `aclick`。
+pub(crate) fn is_serp_ad_href(raw: &str) -> bool {
+    let raw = if let Some(rest) = raw.strip_prefix("//") {
+        format!("https://{rest}")
+    } else {
+        raw.to_string()
+    };
+    let Ok(url) = Url::parse(&raw) else {
+        return false;
+    };
+    let host = url.host_str().unwrap_or_default();
+    let path = url.path();
+    (matches!(
+        host,
+        "duckduckgo.com" | "www.duckduckgo.com" | "html.duckduckgo.com"
+    ) && path == "/y.js")
+        || (matches!(host, "www.bing.com" | "bing.com") && path == "/aclick")
 }
 
 /// 展开 Bing 点击追踪链（`www.bing.com/ck/a`）：`u` 参数为 base64url（可能带 `a1`
@@ -254,20 +317,53 @@ fn expand_bing_ck(url: &Url) -> Option<String> {
         return None;
     }
     let u = url.query_pairs().find(|(k, _)| k == "u")?.1.into_owned();
-    // URL-safe base64 字符集（`-`/`_`）+ 可能省略 padding → 统一为标准 base64 再解码
-    let mut b64 = u.strip_prefix("a1").unwrap_or(&u).to_string();
+    Some(decode_bing_click_u(&u)?.to_string())
+}
+
+/// Bing 广告 `aclick?u=`：`u` 常为标准 base64，载荷可能是明文 URL 或再 percent-encode 一层。
+fn expand_bing_aclick(url: &Url) -> Option<String> {
+    if !matches!(url.host_str(), Some("www.bing.com" | "bing.com")) || url.path() != "/aclick" {
+        return None;
+    }
+    let u = url.query_pairs().find(|(k, _)| k == "u")?.1.into_owned();
+    Some(decode_bing_click_u(&u)?.to_string())
+}
+
+fn decode_bing_click_u(u: &str) -> Option<Url> {
+    let mut b64 = u.strip_prefix("a1").unwrap_or(u).to_string();
     b64 = b64.replace('-', "+").replace('_', "/");
     b64.push_str(&"=".repeat((4 - b64.len() % 4) % 4));
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(b64.as_bytes())
         .ok()?;
     let target = String::from_utf8(bytes).ok()?;
-    let mut parsed = Url::parse(&target).ok()?;
+    parse_http_url(&target).or_else(|| parse_http_url(&percent_decode_utf8(&target)?))
+}
+
+fn parse_http_url(s: &str) -> Option<Url> {
+    let mut parsed = Url::parse(s).ok()?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return None;
     }
     parsed.set_fragment(None);
-    Some(parsed.to_string())
+    Some(parsed)
+}
+
+fn percent_decode_utf8(s: &str) -> Option<String> {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
 }
 
 /// 提取 URL 的来源域名与 https 标志（供 `SearchResult.domain/https` 填充；
@@ -598,6 +694,86 @@ mod tests {
         let (url, resolved) = normalize_url(ck);
         assert_eq!(url, ck);
         assert!(!resolved, "非 http(s) 目标不信任，保持原样");
+    }
+
+    #[test]
+    fn expands_ddg_yjs_u3() {
+        let raw = "https://duckduckgo.com/y.js?u3=https%3A%2F%2Fexample.com%2Ftrain";
+        let (url, resolved) = normalize_url(raw);
+        assert_eq!(url, "https://example.com/train");
+        assert!(resolved);
+        assert!(is_serp_ad_href(raw));
+        assert!(!is_serp_ad_href("https://example.com/train"));
+    }
+
+    #[test]
+    fn expands_ddg_yjs_nested_bing_aclick() {
+        // aclick `u` = base64(percent-encoded https://example.com/train)
+        let aclick = "https://www.bing.com/aclick?u=aHR0cHMlM0ElMkYlMkZleGFtcGxlLmNvbSUyRnRyYWlu";
+        let (url, resolved) = normalize_url(aclick);
+        assert_eq!(url, "https://example.com/train");
+        assert!(resolved);
+        let yjs = format!(
+            "https://duckduckgo.com/y.js?u3={}",
+            urlencoding_path(aclick)
+        );
+        let (url, resolved) = normalize_url(&yjs);
+        assert_eq!(url, "https://example.com/train");
+        assert!(resolved);
+        assert!(is_serp_ad_href(&yjs));
+    }
+
+    fn urlencoding_path(s: &str) -> String {
+        s.bytes()
+            .map(|b| match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                    (b as char).to_string()
+                }
+                _ => format!("%{b:02X}"),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn expands_bing_aclick_plain_base64() {
+        let raw = "https://www.bing.com/aclick?u=aHR0cHM6Ly9leGFtcGxlLmNvbS90cmFpbg==";
+        let (url, resolved) = normalize_url(raw);
+        assert_eq!(url, "https://example.com/train");
+        assert!(resolved);
+    }
+
+    #[test]
+    fn yjs_without_u3_kept_as_is() {
+        let raw = "https://duckduckgo.com/y.js?ad_domain=example.com";
+        let (url, resolved) = normalize_url(raw);
+        assert_eq!(url, raw);
+        assert!(!resolved);
+        assert!(is_serp_ad_href(raw));
+    }
+
+    #[test]
+    fn unwrap_depth_is_capped() {
+        let mut inner = "https://example.com/end".to_string();
+        for _ in 0..8 {
+            inner = format!(
+                "https://duckduckgo.com/y.js?u3={}",
+                inner
+                    .bytes()
+                    .map(|b| match b {
+                        b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                            (b as char).to_string()
+                        }
+                        _ => format!("%{b:02X}"),
+                    })
+                    .collect::<String>()
+            );
+        }
+        let (url, resolved) = normalize_url(&inner);
+        assert!(resolved);
+        assert!(
+            url.contains("y.js") || url == "https://example.com/end",
+            "cap unwrap without stack overflow: {url}"
+        );
     }
 
     #[test]

@@ -76,8 +76,9 @@ impl SearchProvider for DuckDuckGo {
 
             let (url, url_resolved) = normalize_url(&raw_href);
             let (domain, https) = crate::extract::url_origin(&url);
-            // DDG 广告位容器 class 形如 `result--ad`；普通结果无此标记
-            let is_ad = node.value().classes().any(|c| c.contains("--ad"));
+            // DDG 广告：容器 `result--ad`，或 href 为 y.js / Bing aclick（可能混在普通槽位）
+            let is_ad = node.value().classes().any(|c| c.contains("--ad"))
+                || crate::extract::is_serp_ad_href(&raw_href);
             let published_at = crate::extract::extract_date(&snippet_text);
             let result_kind = crate::extract::result_kind(&url);
             results.push(SearchResult {
@@ -228,6 +229,20 @@ mod tests {
         assert_eq!(results.len(), 2);
         assert!(results[0].is_ad, "result--ad 应标记为广告");
         assert!(!results[1].is_ad, "普通结果不应标记为广告");
+    }
+
+    #[test]
+    fn parse_marks_yjs_href_as_ad_and_unwraps_target() {
+        let html = r#"<html><body>
+            <div class="result"><a class="result__a" href="https://duckduckgo.com/y.js?u3=https%3A%2F%2Fads.example.com%2Fx">赞助</a><a class="result__snippet">ad</a></div>
+            <div class="result"><a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fok">正常</a><a class="result__snippet">ok</a></div>
+            </body></html>"#;
+        let results = DuckDuckGo.parse(html).expect("应可解析");
+        assert!(results[0].is_ad);
+        assert!(results[0].url_resolved);
+        assert_eq!(results[0].url, "https://ads.example.com/x");
+        assert!(!results[1].is_ad);
+        assert_eq!(results[1].url, "https://example.com/ok");
     }
 
     #[test]
