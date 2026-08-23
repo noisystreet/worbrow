@@ -10,6 +10,7 @@
 
 - [ ] `cargo fmt --check` passes
 - [ ] `cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity` passes
+- [ ] `bash scripts/check-complexity.sh` (lizard CCN ≤ 15) passes
 - [ ] `cargo test` passes
 - [ ] `cargo machete` passes (`cargo deny check` may be skipped when network is restricted locally; CI runs it)
 - [ ] Contract changes (JSON schema / exit codes) bump `schema_version` and record an ADR (see `docs/adr/`)

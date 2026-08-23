@@ -26,15 +26,16 @@ pre-commit install --hook-type commit-msg   # Conventional Commits 校验
 ## 本地验证（提交前必跑）
 
 ```bash
-pre-commit run --all-files   # 空白/YAML/TOML/密钥/冲突标记等（可选但推荐）
+pre-commit run --all-files   # 空白/YAML/TOML/密钥/冲突标记、fmt/clippy/lizard 等
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity
+bash scripts/check-complexity.sh   # lizard CCN ≤ 15；也可 `make complexity`
 cargo test
 cargo deny check
 cargo machete
 ```
 
-`fmt`/`clippy`/`test`/`deny`/`machete` 不进 pre-commit（偏慢；由 Makefile 与 CI 承担）。
+`fmt`/`clippy`/`lizard` 走 pre-commit（改 `.rs` 时触发）。`test`/`deny`/`machete` 偏慢，由 Makefile 与 CI 承担。
 
 ## 常见任务
 

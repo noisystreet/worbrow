@@ -11,7 +11,7 @@ env:
 
 jobs:
   check:
-    name: fmt · clippy · test · deny · machete
+    name: fmt · clippy · lizard · test · deny · machete
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,6 +27,11 @@ jobs:
 
       - name: clippy
         run: cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity
+
+      - name: lizard (cyclomatic complexity)
+        run: |
+          python3 -m pip install --user 'lizard==1.22.1'
+          bash scripts/check-complexity.sh
 
       - name: test
         run: cargo test

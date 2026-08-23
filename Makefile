@@ -1,7 +1,7 @@
 # 质量入口：统一命令（just 未安装时使用 make）
 # 常用：make check / make test / make build
 
-.PHONY: fmt lint test check deny machete doctor build deb bench-search
+.PHONY: fmt lint test check complexity deny machete doctor build deb bench-search
 
 fmt:
 	cargo fmt
@@ -12,7 +12,10 @@ lint:
 test:
 	cargo test
 
-check: fmt lint test
+complexity:
+	bash scripts/check-complexity.sh
+
+check: fmt lint complexity test
 
 deny:
 	cargo deny check

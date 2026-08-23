@@ -24,6 +24,9 @@ This file records user-visible changes (Keep a Changelog style).
 
 ### Added
 
+- **lizard 圈复杂度门禁**：`scripts/check-complexity.sh`（CCN ≤ 15）接入 pre-commit、
+  `make complexity` / `make check` 与 CI；与 clippy `cognitive_complexity` 互补
+
 - **广告不计入内容型 + 展开 DDG `y.js`**：`is_ad` 或 SERP 广告 href（`y.js` / Bing
   `aclick`）不计入质量门禁；截断前广告排到最后。`normalize_url` 展开 `y.js?u3=`
   及嵌套的 Bing `aclick?u=`（与既有 `uddg` / `ck/a` 同为尽力解跳转）。

@@ -43,6 +43,7 @@ Hard constraints and verification entry points for agents (and humans) working i
 ```bash
 cargo fmt --check
 cargo clippy --all-targets --all-features -- -D warnings -W clippy::cognitive_complexity
+bash scripts/check-complexity.sh
 cargo test
 cargo deny check
 cargo machete

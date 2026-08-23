@@ -196,8 +196,9 @@ Pick the entry point by whether you are already inside a tokio runtime, to **avo
 No `just`; the unified entry point is `make`:
 
 ```bash
-make check      # fmt + clippy(-D warnings, cognitive complexity <= 10) + test
+make check      # fmt + clippy(-D warnings, cognitive complexity <= 10) + lizard (CCN <= 15) + test
 make test       # cargo test (mcp enabled by default, CI needs no browser)
+make complexity # lizard cyclomatic complexity (CCN <= 15)
 make deny       # cargo-deny license/vulnerability check
 make machete    # unused-dependency check
 make doctor     # run worbrow doctor

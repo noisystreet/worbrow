@@ -230,8 +230,9 @@ fn main() -> Result<(), worbrow::Error> {
 未安装 `just`，统一入口为 `make`：
 
 ```bash
-make check      # fmt + clippy(-D warnings，认知复杂度 ≤10) + test
+make check      # fmt + clippy(-D warnings，认知复杂度 ≤10) + lizard（CCN ≤15）+ test
 make test       # cargo test（默认含 mcp，CI 无需浏览器）
+make complexity # lizard 圈复杂度（CCN ≤15）
 make deny       # cargo-deny 许可/漏洞检查
 make machete    # 未使用依赖检查
 make doctor     # 运行 worbrow doctor
