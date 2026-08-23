@@ -527,7 +527,7 @@ fixture 更新纪律：引擎改版导致解析失败时，`engine_error` 上报
 
 ## 13. 演进路线
 
-- **V1（已完成，当前 0.2.1 + Unreleased）**：DuckDuckGo / Bing / 百度引擎；Marionette
+- **V1（已完成，当前 0.2.2）**：DuckDuckGo / Bing / 百度引擎；Marionette
   （Firefox）与 CDP（Chrome/Edge）；`--json`/超时/验证码检测/截图/`worbrow doctor`；
   MCP stdio（ADR-005）+ 会话池（ADR-007）+ 重试与缓存（ADR-008）；库公开面（ADR-006）；
   正文抓取与结构化提取（ADR-009 / ADR-010）；引擎降级链与质量门禁（内容型占比 + 相关性）；

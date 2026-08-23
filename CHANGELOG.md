@@ -4,6 +4,8 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-08-23
+
 ### Fixed
 
 - **CLI `--engine` help**：available engines now include `baidu` (was `duckduckgo, bing` only)
@@ -23,6 +25,8 @@ This file records user-visible changes (Keep a Changelog style).
   信号但过于严格，占比阈值给降级链更多判断空间
 
 ### Added
+
+- **MCP 容器镜像**：根目录 `Dockerfile` 提供容器化 `worbrow mcp`（stdio）部署路径
 
 - **lizard 圈复杂度门禁**：`scripts/check-complexity.sh`（CCN ≤ 15）接入 pre-commit、
   `make complexity` / `make check` 与 CI；与 clippy `cognitive_complexity` 互补
