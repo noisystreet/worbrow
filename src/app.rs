@@ -37,13 +37,23 @@ const LOAD_POLL: Duration = Duration::from_millis(200);
 const HTTP_STATUS_JS: &str = "(() => { const n = performance.getEntriesByType('navigation')[0]; return n ? (n.responseStatus || null) : null; })()";
 
 /// 内容型（`ResultKind::Web`）结果数：质量降级信号核心（roadmap-result-quality.md）。
-/// 词典/翻译等污染结果不计入——高产低质（如 Bing 对 `best`/`learn` 返回全词典释义）
-/// 不再满足降级判定，自动尝试下一引擎。
+/// 词典/翻译/枢纽页不计入——高产低质（全词典或门户首页）不再满足降级判定，
+/// 自动尝试下一引擎。
 fn content_count(results: &[SearchResult]) -> usize {
     results
         .iter()
         .filter(|r| r.result_kind == crate::domain::ResultKind::Web)
         .count()
+}
+
+/// 同引擎内：内容页优先于枢纽/词典/翻译，再截断到 max_results（ADR-012）。
+fn prefer_content_pages(results: &mut [SearchResult]) {
+    results.sort_by_key(|r| match r.result_kind {
+        crate::domain::ResultKind::Web => 0u8,
+        crate::domain::ResultKind::Hub => 1,
+        crate::domain::ResultKind::Dictionary => 2,
+        crate::domain::ResultKind::Translation => 3,
+    });
 }
 
 /// 相关性命中占比阈值（P3 门禁细化，roadmap-result-quality.md）：命中至少一个显著词
@@ -856,8 +866,7 @@ async fn handle_engine_result(
     match result {
         Ok((html, results, captcha, pages)) => {
             // 满意：内容型（web）结果集满请求量或非低产（≥ 阈值），web 占比 ≥ 50%，
-            // 且与查询词有重叠（P3 相关性门禁，roadmap-result-quality.md：离题但
-            // 类型正常的 Web 结果同样降级）
+            // 且与查询词有重叠（P3 相关性门禁）。枢纽页不计入内容型（ADR-012）。
             let content = content_count(&results);
             let web_ratio_ok = content * 2 >= results.len();
             let relevance_ok = relevant(&results, &query.text);
@@ -967,11 +976,12 @@ async fn search_one(
         ));
     }
 
-    // 去重后重排 rank 并截断
+    // 去重后：内容页优先再截断，最后重排 rank
+    prefer_content_pages(&mut all);
+    all.truncate(query.max_results);
     for (i, r) in all.iter_mut().enumerate() {
         r.rank = i + 1;
     }
-    all.truncate(query.max_results);
 
     Ok((last_html, all, captcha, fetched_pages))
 }
@@ -1384,6 +1394,60 @@ mod tests {
         );
     }
 
+    /// 枢纽页污染（ADR-012）：首引擎全是门户首页 → 内容型 0 → 降级下一引擎。
+    #[tokio::test]
+    async fn hub_homepages_trigger_engine_fallback() {
+        const HUB_HTML: &str = r#"<html><body><ol id="b_results">
+          <li class="b_algo"><h2><a href="https://www.toutiao.com/">今日头条</a></h2><div class="b_caption"><p>新闻首页</p></div></li>
+          <li class="b_algo"><h2><a href="https://news.sina.com.cn/hotnews/">新浪热门新闻</a></h2><div class="b_caption"><p>排行首页</p></div></li>
+          <li class="b_algo"><h2><a href="https://www.12306.cn/">中国铁路12306</a></h2><div class="b_caption"><p>官网首页</p></div></li>
+          <li class="b_algo"><h2><a href="https://tophub.today/c/news">今日热榜</a></h2><div class="b_caption"><p>热榜频道</p></div></li>
+        </ol></body></html>"#;
+
+        struct HubThenDdg {
+            current: Option<String>,
+        }
+        #[async_trait::async_trait]
+        impl crate::ports::BrowserDriver for HubThenDdg {
+            async fn navigate(&mut self, url: url::Url) -> Result<(), Error> {
+                self.current = Some(url.to_string());
+                Ok(())
+            }
+            async fn wait_for(&mut self, _s: &str, _t: Duration) -> Result<(), Error> {
+                Ok(())
+            }
+            async fn html(&self) -> Result<String, Error> {
+                let url = self.current.as_deref().unwrap_or_default();
+                if url.contains("bing.com") {
+                    Ok(HUB_HTML.to_string())
+                } else {
+                    Ok(include_str!("../tests/fixtures/duckduckgo.html").to_string())
+                }
+            }
+            async fn eval(&mut self, _js: &str) -> Result<serde_json::Value, Error> {
+                Ok(serde_json::Value::Null)
+            }
+            async fn screenshot(&mut self, _p: &std::path::Path) -> Result<(), Error> {
+                Ok(())
+            }
+        }
+
+        let mut driver = HubThenDdg { current: None };
+        let cfg = Config::new("今日十大新闻", "bing,duckduckgo", BrowserKind::Fake)
+            .with_max_results(5)
+            .with_timeout(Duration::from_secs(10));
+        let outcome = run_with(&mut driver, cfg).await.expect("降级后应成功");
+        assert_eq!(outcome.meta.engine, "duckduckgo");
+        assert_eq!(outcome.meta.engine_tried, vec!["bing", "duckduckgo"]);
+        assert!(!outcome.meta.low_yield, "ddg 内容型 ≥ 阈值");
+        assert!(
+            outcome
+                .results
+                .iter()
+                .all(|r| r.result_kind == crate::domain::ResultKind::Web)
+        );
+    }
+
     /// 回归：首引擎内容型结果足够（≥ 阈值）→ 不降级、不误报低产。
     #[tokio::test]
     async fn content_results_do_not_trigger_fallback() {
@@ -1690,11 +1754,11 @@ mod tests {
           <li class="b_algo"><h2><a href="https://www.gov.cn/">中国政府网</a></h2><div class="b_caption"><p>政策解读…</p></div></li>
           <li class="b_algo"><h2><a href="https://www.bbc.com/zhongwen/topics/ckr7mn6r003t/simp">中国 - BBC News 中文</a></h2><div class="b_caption"><p>BBC中文网关于中国的最新新闻…</p></div></li>
         </ol></body></html>"#;
-        /// DDG 风格：3 条基金站点（命中查询显著词）。
+        /// DDG 风格：3 条基金站点文章路径（命中查询显著词；根路径会被标为 hub）。
         const RELEVANT_DDG_HTML: &str = r#"<html><body>
-          <div class="result"><a class="result__a" href="https://fund.eastmoney.com/">天天基金网 (1234567.com.cn) 基金数据</a><a class="result__snippet">东方财富旗下基金平台，提供净值查询。</a></div>
-          <div class="result"><a class="result__a" href="https://danjuanfunds.com/">蛋卷基金官网</a><a class="result__snippet">蛋卷基金净值查询与定投。</a></div>
-          <div class="result"><a class="result__a" href="https://www.howbuy.com/">好买基金网</a><a class="result__snippet">基金数据与净值查询。</a></div>
+          <div class="result"><a class="result__a" href="https://fund.eastmoney.com/000001.html">天天基金网 (1234567.com.cn) 基金数据</a><a class="result__snippet">东方财富旗下基金平台，提供净值查询。</a></div>
+          <div class="result"><a class="result__a" href="https://danjuanfunds.com/strategy/index">蛋卷基金官网</a><a class="result__snippet">蛋卷基金净值查询与定投。</a></div>
+          <div class="result"><a class="result__a" href="https://www.howbuy.com/fund/rank.html">好买基金网</a><a class="result__snippet">基金数据与净值查询。</a></div>
         </body></html>"#;
 
         /// 按导航 URL 返回不同页面：bing → 离题集群；ddg → 相关结果。

@@ -84,6 +84,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-009](adr/0009-fetch-page.md) | 正文抓取与结构化提取（`fetch_page` / `worbrow fetch`） | 已接受 |
 | [ADR-010](adr/0010-fetch-enhance.md) | fetch 补强（`meta.http_status` + `wait_selector` SPA 等待） | 已接受 |
 | [ADR-011](adr/0011-static-html-http.md) | 静态 SERP 优先 HTTP GET；默认引擎链 DDG 优先 | 已接受 |
+| [ADR-012](adr/0012-hub-result-kind.md) | 枢纽页 `result_kind=hub` 不计入内容型结果 | 已接受 |
 
 ---
 
@@ -205,7 +206,8 @@ run_with(&mut driver, config)     # MCP：从会话池 acquire → run_with → 
  4. 包整体 timeout(→ 124)，内部为引擎降级循环：
     a. 按序 resolve 引擎 → search_one（5-8 步）
     b. 满意则采用并停止：内容型（`ResultKind::Web`）结果集满 max_results 或 ≥3 条，
-       且 web 占比 ≥ 50%，且查询词重叠门禁通过（显著词命中占比 ≥ 20%）
+       且 web 占比 ≥ 50%，且查询词重叠门禁通过（显著词命中占比 ≥ 20%）；
+       `Hub`/`Dictionary`/`Translation` 不计入内容型（ADR-012）
     c. 低产/低质/离题 → 保留最高产候选（按内容型条数），继续下一引擎
     d. 验证码阻止（captcha 且无结果）或解析失败（EngineFailure）→ 继续下一引擎
     e. 全部尝试完：有候选 → 成功包（low_yield=true）；否则返回最后错误（captcha 优先）
@@ -262,7 +264,7 @@ pub struct SearchResult {
     pub published_at: Option<String>, // 发布日期（摘要尽力提取；格式随引擎变化）
     pub is_ad: bool,          // 广告位结果（Bing 选择器已排除恒 false；DDG 标记）
     pub url_resolved: bool,   // 是否已解跳转（uddg/ck-a 展开为真实目标）
-    pub result_kind: ResultKind, // web/dictionary/translation（URL 特征识别，质量降级信号）
+    pub result_kind: ResultKind, // web/dictionary/translation/hub（URL 特征，质量降级）
 }
 
 #[derive(Serialize)]
@@ -492,8 +494,8 @@ pub trait SearchProvider: Send + Sync {
 
 ### 10.4 输出信号增强
 
-- `meta.low_yield`：内容型（`ResultKind::Web`）结果数 < 3 时置 `true`（schema v1 字段，遵守"只增不改"），
-  agent 可据此判断结果不可靠
+- `meta.low_yield`：内容型（`ResultKind::Web`）结果数 < 3 时置 `true`（枢纽/词典/翻译
+  不计入，ADR-012）；schema v1 字段，遵守"只增不改"，agent 可据此判断结果不可靠
 - `--dump-html <path>`：失败或 low_yield 时保存原始 HTML，供离线诊断与更新 fixture
 - stderr 日志：`--log-level` 控制级别（默认 off）；结构化 JSON 日志（`--log-format json`）尚未实现
 
