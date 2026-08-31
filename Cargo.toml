@@ -25,7 +25,9 @@ path = "src/main.rs"
 [dependencies]
 async-trait = "0.1.91"
 base64 = "0.22.1"
-chrono = { version = "0.4.45", features = ["serde"] }
+# default-features = false：仅保留 serde（契约序列化）与 clock（Utc::now）；
+# 去掉默认的 oldtime（遗留兼容）与 wasmbind（wasm 专属，原生编译无收益）
+chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock"] }
 clap = { version = "4.6.4", features = ["derive"] }
 futures-util = "0.3.33"
 # 静态 SERP HTTP GET（ADR-011）；rustls-tls（ring）便于 musl 静态链接，避免 aws-lc-rs
@@ -67,3 +69,11 @@ recommends = "firefox | firefox-esr"
 # 安全基线：依赖树许可与漏洞检查（cargo-deny）
 [package.metadata.deny]
 targets = ["x86_64-unknown-linux-gnu", "aarch64-unknown-linux-gnu"]
+
+# 编译加速：dev 构建裁剪依赖调试信息（target/debug 体积与增量编译时间大头是依赖 DWARF）。
+# 需要单步调试进依赖时，临时删除本段或改回 debug = true 即可。
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
