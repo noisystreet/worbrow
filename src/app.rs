@@ -291,6 +291,8 @@ pub struct FetchConfig {
     max_chars: usize,
     /// 是否返回清洗后正文（false = 只返回 `extracted`，省 token）。
     text: bool,
+    /// 正文输出格式（`FetchTextFormat::Text` = 纯文本；`Markdown` = 结构化，ADR-014）。
+    format: crate::domain::FetchTextFormat,
     /// 结构化字段提取 allowlist（空 = 不提取）。
     extract: Vec<ExtractField>,
     /// SPA 内容等待选择器（导航后轮询该选择器出现再取正文；`None` = 现行为）。
@@ -315,6 +317,7 @@ impl FetchConfig {
             url: url.into(),
             max_chars: crate::domain::DEFAULT_MAX_CHARS,
             text: true,
+            format: crate::domain::FetchTextFormat::Text,
             extract: Vec::new(),
             wait_selector: None,
             timeout: Duration::from_secs(crate::domain::DEFAULT_TIMEOUT_SECS),
@@ -336,6 +339,12 @@ impl FetchConfig {
     /// 是否返回清洗后正文（false = 只返回 `extracted`）。
     pub fn with_text(mut self, text: bool) -> Self {
         self.text = text;
+        self
+    }
+
+    /// 正文输出格式（`FetchTextFormat::Text` = 纯文本默认；`Markdown` 保留结构，ADR-014）。
+    pub fn with_format(mut self, format: crate::domain::FetchTextFormat) -> Self {
+        self.format = format;
         self
     }
 
@@ -663,8 +672,16 @@ pub(crate) async fn run_fetch_with(
     };
 
     // 3. 提取正文/结构化字段（同一份 HTML 二次解析，不重复导航）
+    //    正文按 `format` 选择提取器：Markdown 保留结构（ADR-014），默认纯文本
     let (text, truncated) = if config.text {
-        crate::extract::extract_main_text(&html, config.max_chars)
+        match config.format {
+            crate::domain::FetchTextFormat::Text => {
+                crate::extract::extract_main_text(&html, config.max_chars)
+            }
+            crate::domain::FetchTextFormat::Markdown => {
+                crate::extract::extract_markdown(&html, config.max_chars)
+            }
+        }
     } else {
         (String::new(), false)
     };
@@ -2194,6 +2211,25 @@ mod tests {
         assert!(!page.text.contains("导航链接"));
         assert_eq!(page.extracted["price"], "1299.00");
         assert_eq!(page.extracted["rating"], 4.6);
+        assert_eq!(page.chars, page.text.chars().count());
+        assert!(!page.truncated);
+    }
+
+    /// format=markdown：正文保留结构（ADR-014），字段提取不受影响。
+    #[tokio::test]
+    async fn fetch_with_markdown_format_preserves_structure() {
+        let mut driver = FetchDriver {
+            html: include_str!("../tests/fixtures/article.html").to_string(),
+            current: None,
+        };
+        let cfg = FetchConfig::new("https://example.com/a", BrowserKind::Fake)
+            .with_max_chars(20_000)
+            .with_format(crate::domain::FetchTextFormat::Markdown)
+            .with_timeout(Duration::from_secs(10));
+        let page = run_fetch_with(&mut driver, cfg).await.expect("抓取应成功");
+        assert!(page.text.contains("# 示例商品页面"), "h1 → markdown 标题");
+        assert!(page.text.contains("这是第一段正文内容。"), "正文保留");
+        assert!(!page.text.contains("导航链接"), "噪音仍剥离");
         assert_eq!(page.chars, page.text.chars().count());
         assert!(!page.truncated);
     }

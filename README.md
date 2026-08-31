@@ -29,6 +29,7 @@ cargo run -- "rust" --proxy http://127.0.0.1:7890  # HTTP/HTTPS proxy (ADR-013)
 cargo run -- fetch https://example.com/rust --json
 cargo run -- fetch https://example.com --extract price,rating --json    # field extraction (allowlist)
 cargo run -- fetch https://example.com --no-text --extract price        # fields only, saves tokens
+cargo run -- fetch https://example.com --format markdown --json         # Markdown output (ADR-014)
 ```
 
 Backend status: `firefox` (Marionette, hand-written protocol) and `chrome` (CDP, hand-written protocol) are both implemented; `fake` is for tests/smoke. Protocol implementation: [ADR-002](docs/adr/0002-browser-driver-protocols.md).
@@ -76,7 +77,7 @@ worbrow fetch https://example.com --json --extract price,rating
 ```
 
 - **Closing the loop**: pass `results[i].url` from `web_search` explicitly to `fetch_page` — "search links → read content → compare fields" in one step; **never auto-follows search results** (fetches explicit URLs only)
-- **Parameters**: `--max-chars <n>` (body truncation, default 20000, flagged by `meta.truncated`), `--no-text` (extracted fields only, saves tokens), `--extract a,b` (allowlist, invalid values exit 2), `--wait-selector <css>` (SPA: wait for this selector before extracting text, best-effort)
+- **Parameters**: `--max-chars <n>` (body truncation, default 20000, flagged by `meta.truncated`), `--no-text` (extracted fields only, saves tokens), `--extract a,b` (allowlist, invalid values exit 2), `--wait-selector <css>` (SPA: wait for this selector before extracting text, best-effort), `--format text|markdown` (body output format, ADR-014: markdown preserves headings/links/lists/code blocks, the standard agent-consumption format)
 - **Known behavior**: navigation success always yields a success payload (body may be empty); `meta.http_status` reports the page HTTP status (best-effort via `PerformanceNavigationTiming.responseStatus`; `null` on Firefox < 105 / data: URLs), so 4xx/5xx/404 no longer go unnoticed; `meta.final_url` records the redirect landing page; SPA/lazy-loaded content may be missing — pass `--wait-selector <css>` to wait for the content to render
 - **Safety boundary**: `http/https` only (missing scheme defaults to `https://`); navigates with a real browser, page JS runs inside the browser (equivalent to clicking the link yourself); **can reach localhost/intranet** (equivalent to your local browser — do not feed untrusted input if you want to avoid being induced to fetch intranet content); no bulk fetching; rate discipline still applies
 - **Compliance**: fetch is an explicit full-page fetch by the user, a separate path from search engines' snippet-only crawling policy

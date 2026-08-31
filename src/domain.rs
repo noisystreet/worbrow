@@ -325,6 +325,37 @@ impl SafesearchLevel {
     }
 }
 
+/// fetch 正文输出格式（请求参数；ADR-014，默认 `Text` 保持现行为）。
+///
+/// `Markdown` 保留文档结构（标题/链接/列表/代码块），是 agent 生态的标准投喂格式；
+/// `FetchedPage.text` 按所选格式输出，schema v1 零变化。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum FetchTextFormat {
+    /// 清洗后的纯文本（默认；`extract_main_text`）。
+    Text,
+    /// Markdown（`extract_markdown`）。
+    Markdown,
+}
+
+impl FetchTextFormat {
+    /// 从 CLI/MCP 参数值解析（大小写不敏感）。
+    pub fn from_arg(s: &str) -> Option<Self> {
+        match s.trim().to_ascii_lowercase().as_str() {
+            "text" | "plain" => Some(Self::Text),
+            "markdown" | "md" => Some(Self::Markdown),
+            _ => None,
+        }
+    }
+
+    /// 参数值（CLI/MCP 文档与提示用）。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Text => "text",
+            Self::Markdown => "markdown",
+        }
+    }
+}
+
 #[cfg(test)]
 // 测试断言序列（assert_eq 宏展开）非控制流复杂度，豁免门禁；生产代码仍严格 ≤10
 #[allow(clippy::cognitive_complexity)]
@@ -433,5 +464,29 @@ mod tests {
         for f in ExtractField::ALL {
             assert_eq!(ExtractField::from_arg(f.as_str()), Some(f));
         }
+    }
+
+    #[test]
+    fn fetch_text_format_from_arg_and_as_str() {
+        assert_eq!(
+            FetchTextFormat::from_arg("text"),
+            Some(FetchTextFormat::Text)
+        );
+        assert_eq!(
+            FetchTextFormat::from_arg("PLAIN"),
+            Some(FetchTextFormat::Text)
+        );
+        assert_eq!(
+            FetchTextFormat::from_arg("markdown"),
+            Some(FetchTextFormat::Markdown)
+        );
+        assert_eq!(
+            FetchTextFormat::from_arg("md"),
+            Some(FetchTextFormat::Markdown)
+        );
+        assert_eq!(FetchTextFormat::from_arg("html"), None);
+        assert_eq!(FetchTextFormat::from_arg(""), None);
+        assert_eq!(FetchTextFormat::Text.as_str(), "text");
+        assert_eq!(FetchTextFormat::Markdown.as_str(), "markdown");
     }
 }

@@ -51,8 +51,8 @@ pub use app::{
 };
 pub use domain::{
     BrowserKind, DEFAULT_BROWSER, DEFAULT_ENGINE, DEFAULT_MAX_CHARS, DEFAULT_MAX_RESULTS,
-    DEFAULT_TIMEOUT_SECS, EngineError, ExtractField, FetchedPage, Freshness, ResultKind,
-    SafesearchLevel, SearchMeta, SearchQuery, SearchResult,
+    DEFAULT_TIMEOUT_SECS, EngineError, ExtractField, FetchTextFormat, FetchedPage, Freshness,
+    ResultKind, SafesearchLevel, SearchMeta, SearchQuery, SearchResult,
 };
 pub mod drivers;
 pub mod engines;

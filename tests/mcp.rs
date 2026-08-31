@@ -593,6 +593,75 @@ async fn tools_call_fetch_page_via_fake_driver() {
     client.kill().await;
 }
 
+/// fetch_page：`format=markdown` 返回 Markdown 正文（ADR-014，保留标题/链接结构）。
+#[tokio::test]
+async fn tools_call_fetch_page_markdown_format() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "fetch_page",
+                "arguments": {
+                    "url": "https://example.com",
+                    "browser": "fake",
+                    "format": "markdown",
+                    "timeout": 10
+                }
+            }),
+        )
+        .await;
+    assert!(
+        resp.get("error").is_none(),
+        "fetch_page 不应有协议错误（实际: {resp}）"
+    );
+    assert_eq!(resp["result"]["isError"], serde_json::Value::Bool(false));
+    let text = resp["result"]["content"][0]["text"]
+        .as_str()
+        .expect("应有文本");
+    let payload: Value = serde_json::from_str(text).expect("抓取成功包 JSON");
+    let body = payload["text"].as_str().expect("应有正文");
+    assert!(
+        body.contains("[Rust 异步编程 async/await | 菜鸟教程](https://www.runoob.com/rust/rust-async-await.html)"),
+        "markdown 应保留链接结构: {body}"
+    );
+    client.kill().await;
+}
+
+/// fetch_page：非法 `format` 值 → 工具级错误（isError=true）。
+#[tokio::test]
+async fn tools_call_fetch_page_rejects_invalid_format() {
+    let mut client = McpClient::spawn().await;
+    client.initialize().await;
+
+    let resp = client
+        .call(
+            "tools/call",
+            json!({
+                "name": "fetch_page",
+                "arguments": {
+                    "url": "https://example.com",
+                    "browser": "fake",
+                    "format": "html",
+                    "timeout": 10
+                }
+            }),
+        )
+        .await;
+    assert!(resp.get("error").is_none(), "不应有协议错误");
+    assert_eq!(resp["result"]["isError"], serde_json::Value::Bool(true));
+    assert!(
+        resp["result"]["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("unsupported format"),
+        "应提示不支持 format"
+    );
+    client.kill().await;
+}
+
 /// fetch_page：非法 extract 字段 → 工具级错误（isError=true，用户可见）。
 #[tokio::test]
 async fn tools_call_fetch_page_rejects_invalid_extract() {

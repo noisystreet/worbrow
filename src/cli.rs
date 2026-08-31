@@ -103,6 +103,9 @@ pub enum Command {
     Fetch {
         /// Target URL (http/https; missing scheme defaults to https://)
         url: String,
+        /// Output format for the body text (text|markdown; default text, ADR-014)
+        #[arg(long, value_enum, default_value_t = FetchFormatArg::Text)]
+        format: FetchFormatArg,
         /// Extract structured fields (comma-separated; supported: title/author/published_at/price/currency/rating/rating_max/reviews_count)
         #[arg(long, value_delimiter = ',', value_enum)]
         extract: Vec<ExtractFieldArg>,
@@ -217,6 +220,22 @@ impl ExtractFieldArg {
             ExtractFieldArg::Rating => worbrow::ExtractField::Rating,
             ExtractFieldArg::RatingMax => worbrow::ExtractField::RatingMax,
             ExtractFieldArg::ReviewsCount => worbrow::ExtractField::ReviewsCount,
+        }
+    }
+}
+
+/// fetch 正文输出格式（clap value_enum，与 `domain::FetchTextFormat` 一一对应）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
+pub enum FetchFormatArg {
+    Text,
+    Markdown,
+}
+
+impl FetchFormatArg {
+    pub fn to_domain(self) -> worbrow::FetchTextFormat {
+        match self {
+            FetchFormatArg::Text => worbrow::FetchTextFormat::Text,
+            FetchFormatArg::Markdown => worbrow::FetchTextFormat::Markdown,
         }
     }
 }
