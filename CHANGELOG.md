@@ -4,6 +4,8 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+## [0.2.3] - 2026-08-31
+
 ### Added
 
 - **fetch 正文 Markdown 输出（ADR-014）**：`worbrow fetch --format markdown` / MCP

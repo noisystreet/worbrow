@@ -534,11 +534,12 @@ fixture 更新纪律：引擎改版导致解析失败时，`engine_error` 上报
 
 ## 13. 演进路线
 
-- **V1（已完成，当前 0.2.2）**：DuckDuckGo / Bing / 百度引擎；Marionette
+- **V1（已完成，当前 0.2.3）**：DuckDuckGo / Bing / 百度引擎；Marionette
   （Firefox）与 CDP（Chrome/Edge）；`--json`/超时/验证码检测/截图/`worbrow doctor`；
   MCP stdio（ADR-005）+ 会话池（ADR-007）+ 重试与缓存（ADR-008）；库公开面（ADR-006）；
-  正文抓取与结构化提取（ADR-009 / ADR-010）；引擎降级链与质量门禁（内容型占比 + 相关性）；
-  默认引擎 DDG 优先 + 静态 SERP HTTP 直抓（ADR-011）
+  正文抓取与结构化提取（ADR-009 / ADR-010）+ Markdown 输出（ADR-014）；
+  引擎降级链与质量门禁（内容型占比 + 相关性）；
+  默认引擎 DDG 优先 + 静态 SERP HTTP 直抓（ADR-011）；HTTP/HTTPS 代理（ADR-013）
 - **V2（未做）**：`--connect` 连接已运行浏览器（跨进程会话复用，ADR-007 明确拒绝本次范围）；
   若需网络拦截等深度控制，再评估引入 chromiumoxide 作第二 CDP 实现（AGENTS.md 硬约束 2 的例外）。
   Google 引擎明确不做（见 [roadmap.md](roadmap.md) 非目标）
