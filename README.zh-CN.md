@@ -31,6 +31,7 @@ cargo run -- "rust" --proxy http://127.0.0.1:7890  # HTTP/HTTPS 代理（ADR-013
 cargo run -- fetch https://example.com/rust --json
 cargo run -- fetch https://example.com --extract price,rating --json    # 字段提取（allowlist）
 cargo run -- fetch https://example.com --no-text --extract price        # 只要字段，省 token
+cargo run -- fetch https://example.com --format markdown --json         # Markdown 输出（ADR-014）
 ```
 
 当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
@@ -99,7 +100,9 @@ worbrow fetch https://example.com --json --extract price,rating
   ——「搜到链接 → 读内容 → 比字段」一步到位；**绝不自动跟随搜索结果**（只抓显式 URL）
 - **参数**：`--max-chars <n>`（正文截断，默认 20000，`meta.truncated` 标记）、
   `--no-text`（只要 `extracted`，省 token）、`--extract a,b`（allowlist，非法值 exit 2）、
-  `--wait-selector <css>`（SPA：该选择器出现后再取正文，尽力语义）
+  `--wait-selector <css>`（SPA：该选择器出现后再取正文，尽力语义）、
+  `--format text|markdown`（正文输出格式，ADR-014：markdown 保留标题/链接/列表/代码块
+  结构，是 agent 生态的标准投喂格式）
 - **已知行为**：导航成功即成功包（正文可能为空）；`meta.http_status` 报告目标页 HTTP
   状态码（尽力语义：`PerformanceNavigationTiming.responseStatus`，Firefox < 105 / data:
   URL 为 null），4xx/5xx/404 不再被误报为成功；`meta.final_url` 记录重定向落地页；

@@ -326,6 +326,13 @@ pub struct FetchParams {
     )]
     #[serde(default = "default_text")]
     pub text: bool,
+    /// 正文输出格式（text|markdown；markdown 保留结构，ADR-014）
+    #[schemars(
+        description = "body text format (optional: text/markdown; default text, markdown preserves headings/links/lists for agent consumption)",
+        default = "default_none"
+    )]
+    #[serde(default = "default_none")]
+    pub format: Option<String>,
     /// 全流程硬超时（秒）
     #[schemars(
         description = "hard timeout in seconds (default 60)",
@@ -572,9 +579,22 @@ impl SearchServer {
         if let Err(err) = app::normalize_fetch_url(&params.url) {
             return CallToolResult::error(vec![ContentBlock::text(crate::output::failure(&err))]);
         }
+        // 正文格式（text|markdown；缺省 = Text 保持现行为，非法值 → 工具级参数错误）
+        let format = match params.format.as_deref() {
+            None => crate::domain::FetchTextFormat::Text,
+            Some(s) => match crate::domain::FetchTextFormat::from_arg(s) {
+                Some(f) => f,
+                None => {
+                    return CallToolResult::error(vec![ContentBlock::text(format!(
+                        "unsupported format: {s:?} (supported: text/markdown)"
+                    ))]);
+                }
+            },
+        };
         let config = app::FetchConfig::new(params.url.clone(), browser)
             .with_max_chars(params.max_chars)
             .with_text(params.text)
+            .with_format(format)
             .with_extract(extract)
             .with_wait_selector(params.wait_selector.clone())
             .with_timeout(Duration::from_secs(params.timeout.clamp(1, 300)))

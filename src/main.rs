@@ -36,11 +36,20 @@ fn run_cli() -> ExitCode {
             Command::List => list_engines(),
             Command::Fetch {
                 url,
+                format,
                 extract,
                 max_chars,
                 no_text,
                 wait_selector,
-            } => fetch_main(url, extract, *max_chars, *no_text, wait_selector, &cli),
+            } => fetch_main(
+                url,
+                *format,
+                extract,
+                *max_chars,
+                *no_text,
+                wait_selector,
+                &cli,
+            ),
             #[cfg(feature = "mcp")]
             Command::Mcp {
                 idle_timeout,
@@ -157,10 +166,11 @@ fn list_engines() -> ExitCode {
 /// `worbrow fetch <url>`：抓取显式指定的 URL（ADR-009）。
 ///
 /// 复用全局 `--browser`/`--timeout`/`--json`/`--retry`/`--screenshot`/`--log-level`；
-/// 子命令局部参数 `--extract`/`--max-chars`/`--no-text`。失败路径与 search 共用
+/// 子命令局部参数 `--extract`/`--max-chars`/`--no-text`/`--format`。失败路径与 search 共用
 /// `finish` 语义（失败包 + 冻结退出码）。
 fn fetch_main(
     url: &str,
+    format: cli::FetchFormatArg,
     extract: &[cli::ExtractFieldArg],
     max_chars: usize,
     no_text: bool,
@@ -171,6 +181,7 @@ fn fetch_main(
         .with_extract(extract.iter().map(|e| e.to_domain()).collect())
         .with_max_chars(max_chars)
         .with_text(!no_text)
+        .with_format(format.to_domain())
         .with_wait_selector(wait_selector.clone())
         .with_timeout(std::time::Duration::from_secs(cli.timeout))
         .with_retry(cli.retry)

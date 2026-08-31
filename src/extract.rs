@@ -1,7 +1,7 @@
 //! 链接归一化与文本清洗（design.md §6.5 公共工具，供各引擎适配器复用）。
 
 use base64::Engine as _;
-use scraper::{Html, Selector};
+use scraper::{ElementRef, Html, Selector};
 use url::Url;
 
 use crate::domain::ResultKind;
@@ -416,6 +416,234 @@ pub fn extract_main_text(html: &str, max_chars: usize) -> (String, bool) {
         return (cleaned, false);
     }
     (cleaned.chars().take(max_chars).collect(), true)
+}
+
+/// 从 HTML 提取 Markdown 正文（`--format markdown` / MCP `format=markdown`）。
+///
+/// 与 [`extract_main_text`] 同一容器策略（`article`/`main` 回退 `body`、跳过噪音容器），
+/// 额外保留文档结构：标题（`#`）、段落、链接（`[text](href)`）、列表（`-`）、引用
+/// （`>`）、代码块（```` ``` ````）与图片（`![alt](src)`）。表格扁平化为行内文本
+/// （放弃结构、保留内容），其余未知块级标签递归降级。返回 `(markdown, 是否截断)`。
+pub fn extract_markdown(html: &str, max_chars: usize) -> (String, bool) {
+    let doc = Html::parse_document(html);
+    let Some(root) = select_first(&doc, "article, main").or_else(|| select_first(&doc, "body"))
+    else {
+        return (String::new(), false);
+    };
+    let md = render_block(root, 0);
+    // 折叠多余空行、去尾部空白：markdown 语义不依赖连续空行
+    let mut prev_blank = false;
+    let md = md
+        .lines()
+        .map(str::trim_end)
+        .filter(|line| {
+            let blank = line.is_empty();
+            let keep = !(blank && prev_blank);
+            prev_blank = blank;
+            keep
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    let md = md.trim().to_string();
+    if md.chars().count() <= max_chars {
+        return (md, false);
+    }
+    (md.chars().take(max_chars).collect(), true)
+}
+
+/// 块级元素（自身成段，需换行分隔的标签）。
+const BLOCK_TAGS: &[&str] = &[
+    "p",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "ul",
+    "ol",
+    "li",
+    "blockquote",
+    "pre",
+    "hr",
+    "table",
+    "div",
+    "section",
+    "article",
+    "main",
+    "figure",
+];
+
+/// 递归渲染块级元素（`list_depth` 供嵌套列表缩进）。
+fn render_block(el: scraper::ElementRef<'_>, list_depth: usize) -> String {
+    let name = el.value().name();
+    if NOISE_TAGS.contains(&name) {
+        return String::new();
+    }
+    match name {
+        "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
+            let level = name.as_bytes()[1] - b'0';
+            format!("{} {}\n\n", "#".repeat(level as usize), inline(el))
+        }
+        // 段落：行内内容 + 空行分隔
+        "p" => format!("{}\n\n", inline(el)),
+        "ul" | "ol" => render_list(el, list_depth),
+        "li" => format!("{}- {}\n", "  ".repeat(list_depth), inline(el)),
+        "blockquote" => {
+            let inner = render_children(el, list_depth);
+            inner
+                .lines()
+                .map(|l| format!("> {l}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+                + "\n\n"
+        }
+        "pre" => format!("```\n{}\n```\n\n", raw_text(el)),
+        "hr" => "---\n\n".to_string(),
+        // 表格扁平化为行内文本（放弃结构、保留内容；常见表格足够用）
+        "table" => format!("{}\n\n", inline(el)),
+        // 松散容器（div/section/article/main/figure/body 等）：递归渲染块级子元素
+        _ => render_children(el, list_depth),
+    }
+}
+
+/// 渲染列表：`li` 前缀 `- `，嵌套列表缩进递进（`li` 内的 `ul`/`ol` 由本函数递归处理，
+/// `inline` 对列表容器不输出内容避免重复）。
+fn render_list(el: scraper::ElementRef<'_>, depth: usize) -> String {
+    let mut out = String::new();
+    for node in el.children() {
+        if !node.value().is_element() {
+            continue;
+        }
+        let child = ElementRef::wrap(node).expect("Element 必然可 wrap");
+        if child.value().name() == "li" {
+            out.push_str(&format!("{}- {}\n", "  ".repeat(depth), inline(child)));
+            for sub in child.children() {
+                if !sub.value().is_element() {
+                    continue;
+                }
+                let sub_el = ElementRef::wrap(sub).expect("Element 必然可 wrap");
+                if matches!(sub_el.value().name(), "ul" | "ol") {
+                    out.push_str(&render_list(sub_el, depth + 1));
+                }
+            }
+        }
+    }
+    out
+}
+
+/// 渲染块级容器下的直接子节点（块级子元素递归；游离文本/行内元素按行追加）。
+fn render_children(el: scraper::ElementRef<'_>, list_depth: usize) -> String {
+    let mut out = String::new();
+    for node in el.children() {
+        match node.value() {
+            scraper::Node::Element(_) => {
+                let child = ElementRef::wrap(node).expect("Element 必然可 wrap");
+                if NOISE_TAGS.contains(&child.value().name()) {
+                    continue;
+                }
+                if BLOCK_TAGS.contains(&child.value().name()) {
+                    out.push_str(&render_block(child, list_depth));
+                } else {
+                    let s = inline(child);
+                    if !s.is_empty() {
+                        out.push_str(&s);
+                        out.push('\n');
+                    }
+                }
+            }
+            scraper::Node::Text(t) => {
+                let s = clean_text(t);
+                if !s.is_empty() {
+                    out.push_str(&s);
+                    out.push('\n');
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// 渲染行内内容：链接/强调/代码/图片/换行；`ul`/`ol` 跳过（嵌套列表由 [`render_list`] 处理）。
+fn inline(el: scraper::ElementRef<'_>) -> String {
+    let mut out = String::new();
+    for node in el.children() {
+        match node.value() {
+            scraper::Node::Text(t) => out.push_str(&inline_text(t)),
+            scraper::Node::Element(_) => {
+                let child = ElementRef::wrap(node).expect("Element 必然可 wrap");
+                let name = child.value().name();
+                match name {
+                    "a" => {
+                        let text = inline(child);
+                        let href = child.value().attr("href").unwrap_or("");
+                        if text.is_empty() || href.is_empty() || href.starts_with('#') {
+                            out.push_str(&text);
+                        } else {
+                            // 转义链接文本中的 `]`（防第三方页面注入畸形/误导链接）；
+                            // href 含 `)`/空白时用尖括号包裹（标准 markdown 转义法）
+                            let text = text.replace(']', "\\]");
+                            let href = if href.contains(')') || href.contains(char::is_whitespace) {
+                                format!("<{href}>")
+                            } else {
+                                href.to_string()
+                            };
+                            out.push_str(&format!("[{text}]({href})"));
+                        }
+                    }
+                    "strong" | "b" => out.push_str(&format!("**{}**", inline(child))),
+                    "em" | "i" => out.push_str(&format!("*{}*", inline(child))),
+                    "code" => out.push_str(&format!("`{}`", raw_text(child).trim())),
+                    "img" => {
+                        let alt = child.value().attr("alt").unwrap_or("");
+                        let src = child.value().attr("src").unwrap_or("");
+                        if !src.is_empty() {
+                            out.push_str(&format!("![{alt}]({src})"));
+                        }
+                    }
+                    "br" => out.push('\n'),
+                    // 嵌套列表由 render_list 处理，这里不输出，避免重复
+                    "ul" | "ol" => {}
+                    _ => {
+                        if !NOISE_TAGS.contains(&name) {
+                            out.push_str(&inline(child));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    out
+}
+
+/// 行内文本：折叠空白（复用 [`clean_text`]）但**保留边界空白**——`<a>链接</a> 详情` 的
+/// 空格不应被剥掉（否则行内内容粘连成 `链接[文档]详情`）。
+fn inline_text(t: &str) -> String {
+    let leading = t.starts_with(char::is_whitespace);
+    let trailing = t.ends_with(char::is_whitespace);
+    let mut s = clean_text(t);
+    if !s.is_empty() {
+        if leading {
+            s.insert(0, ' ');
+        }
+        if trailing {
+            s.push(' ');
+        }
+    }
+    s
+}
+
+/// 子树的原始文本（拼接全部文本节点，不折叠空白——供 `pre`/`code` 保留代码缩进）。
+fn raw_text(el: scraper::ElementRef<'_>) -> String {
+    let mut out = String::new();
+    for node in el.descendants() {
+        if let Some(t) = node.value().as_text() {
+            out.push_str(t);
+        }
+    }
+    out
 }
 
 /// 从 HTML 提取结构化字段（allowlist；缺失字段缺省，绝不编造）。
@@ -964,6 +1192,81 @@ mod tests {
         let (text, truncated) = extract_main_text("<html><head></head><body></body></html>", 100);
         assert_eq!(text, "");
         assert!(!truncated);
+    }
+
+    /// Markdown 提取：保留结构（标题/链接/列表/引用/代码块），剥离噪音容器。
+    #[test]
+    // 测试断言序列（assert! 宏展开）非控制流复杂度，豁免门禁；生产代码仍严格 ≤10
+    #[allow(clippy::cognitive_complexity)]
+    fn extract_markdown_preserves_structure() {
+        let html = r#"
+<html><body>
+  <nav>导航链接</nav>
+  <article>
+    <h1>标题一</h1>
+    <p>段落包含 <a href="https://example.com/doc">链接文本</a> 与 <strong>加粗</strong>。</p>
+    <ul>
+      <li>条目甲</li>
+      <li>条目乙<ul><li>嵌套条目</li></ul></li>
+    </ul>
+    <blockquote><p>引用内容</p></blockquote>
+    <pre><code>fn main() {}</code></pre>
+  </article>
+  <footer>页脚版权</footer>
+</body></html>"#;
+        let (md, truncated) = extract_markdown(html, 20_000);
+        assert!(!truncated, "小页面不应截断");
+        assert!(md.contains("# 标题一"), "h1 → `# ` 标题");
+        assert!(
+            md.contains("[链接文本](https://example.com/doc)"),
+            "链接保留为 markdown 链接"
+        );
+        assert!(md.contains("**加粗**"), "strong → **加粗**");
+        assert!(md.contains("- 条目甲"), "列表项前缀 `- `");
+        assert!(md.contains("  - 嵌套条目"), "嵌套列表缩进");
+        assert!(md.contains("> 引用内容"), "引用前缀 `> `");
+        assert!(md.contains("```\nfn main() {}\n```"), "代码块保留缩进");
+        assert!(!md.contains("导航链接"), "nav 噪音剥离");
+        assert!(!md.contains("页脚版权"), "footer 噪音剥离");
+    }
+
+    /// Markdown 提取：真实 fixture 页（article.html）结构正确、噪音剥离。
+    #[test]
+    fn extract_markdown_on_article_fixture() {
+        let (md, truncated) = extract_markdown(ARTICLE_HTML, 20_000);
+        assert!(!truncated);
+        assert!(md.contains("# 示例商品页面"), "h1 → `# ` 标题");
+        assert!(md.contains("这是第一段正文内容。"), "正文保留");
+        assert!(!md.contains("导航链接"), "nav 噪音剥离");
+        assert!(!md.contains("订阅表单"), "form 噪音剥离");
+        assert!(!md.contains("不应出现"), "script 内容剥离");
+    }
+
+    /// Markdown 截断：超过 max_chars 截断并标记 truncated。
+    #[test]
+    fn extract_markdown_truncates_at_max_chars() {
+        let (md, truncated) = extract_markdown(ARTICLE_HTML, 6);
+        assert!(truncated, "超限应标记截断");
+        assert_eq!(md.chars().count(), 6, "截断到 max_chars 字符");
+    }
+
+    /// 无正文容器：返回空 markdown 不 panic。
+    #[test]
+    fn extract_markdown_empty_page() {
+        let (md, truncated) = extract_markdown("<html><head></head><body></body></html>", 100);
+        assert_eq!(md, "");
+        assert!(!truncated);
+    }
+
+    /// 行内文本边界空格保留：`see [docs](url) for details` 不应粘连。
+    #[test]
+    fn inline_text_preserves_boundary_spaces() {
+        let html = r#"<html><body><article><p>see <a href="https://x.com/d">docs</a> for <strong>details</strong> now</p></article></body></html>"#;
+        let (md, _) = extract_markdown(html, 20_000);
+        assert!(
+            md.contains("see [docs](https://x.com/d) for **details** now"),
+            "链接/强调前后的空格不应丢失: {md:?}"
+        );
     }
 
     /// 字段提取：meta 优先（title/author/published_at/price/currency），

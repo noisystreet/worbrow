@@ -86,6 +86,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-011](adr/0011-static-html-http.md) | 静态 SERP 优先 HTTP GET；默认引擎链 DDG 优先 | 已接受 |
 | [ADR-012](adr/0012-hub-result-kind.md) | 枢纽页 `result_kind=hub` 不计入内容型结果 | 已接受 |
 | [ADR-013](adr/0013-proxy-support.md) | HTTP/HTTPS 代理支持（`--proxy`，三处生效） | 已接受 |
+| [ADR-014](adr/0014-fetch-markdown.md) | fetch 正文 Markdown 输出（`--format markdown`） | 已接受 |
 
 ---
 
@@ -189,7 +190,8 @@ clap derive 定义参数（示意）：
 | `--proxy` | url | 无 | HTTP/HTTPS 代理（`http://host:port`/`https://host:port`，ADR-013）；CDP `--proxy-server`、Marionette `network.proxy.*`、HTTP 直抓 reqwest 三处生效 |
 
 子命令：`worbrow doctor`（环境自检，§10）、`worbrow list`（列出引擎）、
-`worbrow fetch <url>`（正文抓取 + 结构化提取，ADR-009，§7.1 fetch 包）、
+`worbrow fetch <url>`（正文抓取 + 结构化提取，ADR-009，§7.1 fetch 包；
+`--format text|markdown` 选正文输出格式，ADR-014）、
 `worbrow mcp`（MCP stdio，ADR-005；`--idle-timeout` / `--max-sessions` / `--session-ttl` /
 `--proxy`（ADR-013））。
 
@@ -398,6 +400,8 @@ pub trait SearchProvider: Send + Sync {
 ```
 
 - `text`：清洗后正文（`--no-text`/`text=false` 时为空串）；`meta.truncated` 由 `max_chars` 截断触发
+- `--format markdown`（ADR-014）：`text` 按 Markdown 输出（标题/链接/列表/代码块结构，
+  `extract_markdown`；schema v1 零变化，`format` 为请求参数）
 - `extracted`：allowlist 字段（title/author/published_at/price/currency/rating/rating_max/
   reviews_count），缺失字段缺省、绝不编造；值保留 JSON 原生类型
 - `meta.final_url`：重定向落地页（`eval("location.href")`）

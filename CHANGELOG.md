@@ -6,11 +6,17 @@ This file records user-visible changes (Keep a Changelog style).
 
 ### Added
 
+- **fetch 正文 Markdown 输出（ADR-014）**：`worbrow fetch --format markdown` / MCP
+  `fetch_page` `format=markdown` / lib `FetchConfig::with_format`——正文按 Markdown 输出
+  （保留标题/链接/列表/引用/代码块结构，`extract_markdown` 基于 scraper 手写转换，
+  无新依赖）；缺省 `text` 保持现行为，schema v1 / 退出码零变化；非法 `format` CLI
+  exit 2 / MCP 工具级 isError
+
 - **HTTP/HTTPS 代理支持（ADR-013）**：新增 `--proxy http://host:port`（CLI 全局 /
   lib `Config::with_proxy` / `worbrow mcp --proxy`，server 级）——同时作用于浏览器启动
   （CDP `--proxy-server`、Marionette `network.proxy.*`）与静态 SERP HTTP 直抓（reqwest）。
-  非法代理 URL（非 http/https、缺 host）在启动浏览器前校验并返回 `exit 2`；不传时保持
-  直连/系统代理（HTTP 客户端读 `HTTP_PROXY` 等环境变量）。JSON schema / 退出码不变。
+  非法代理 URL（非 http/https、缺 host、含凭据/路径）在启动浏览器前校验并返回 `exit 2`；
+  不传时保持直连/系统代理（HTTP 客户端读 `HTTP_PROXY` 等环境变量）。JSON schema / 退出码不变。
 
 ### Fixed
 
