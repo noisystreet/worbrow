@@ -97,8 +97,9 @@ impl Drop for ChildGuard {
 
 impl MarionetteDriver {
     /// 启动 Firefox 并完成握手：find → 校验版本 → spawn → connect → NewSession →
-    /// SetTimeouts（design.md §6.2 步骤 3）。
-    pub async fn spawn() -> Result<Box<dyn BrowserDriver>, Error> {
+    /// SetTimeouts（design.md §6.2 步骤 3）。`proxy`（http/https，ADR-013）写入 profile
+    /// `user.js` 的 `network.proxy.*` 偏好（`None` = 直连/系统代理）。
+    pub async fn spawn(proxy: Option<&str>) -> Result<Box<dyn BrowserDriver>, Error> {
         let binary = discovery::find_browser(BrowserKind::Firefox)?;
         // 版本矩阵校验（design.md §10.2）：Firefox ≥ 55 才支持 -marionette
         if let Some(version) = discovery::browser_major_version(&binary)
@@ -110,7 +111,7 @@ impl MarionetteDriver {
             )));
         }
         let port = pick_free_port()?;
-        let profile = create_profile(port)?;
+        let profile = create_profile(port, proxy)?;
 
         let mut cmd = tokio::process::Command::new(&binary);
         cmd.arg("-marionette")
@@ -409,17 +410,36 @@ fn pick_free_port() -> Result<u16, Error> {
         .map_err(|e| Error::Env(format!("failed to read random port: {e}")))
 }
 
-/// 创建独立临时 profile，写入随机 `marionette.port`（design.md §10.1）。
-fn create_profile(port: u16) -> Result<TempDir, Error> {
+/// 创建独立临时 profile 并写入 `user.js`：随机 `marionette.port`（规避 2828 冲突）；
+/// 可选 HTTP/HTTPS 代理偏好（ADR-013，`network.proxy.type=1` 手动模式 + http/ssl 同址）。
+fn create_profile(port: u16, proxy: Option<&str>) -> Result<TempDir, Error> {
     let dir = tempfile::Builder::new()
         .prefix("worbrow-firefox-profile-")
         .tempdir()
         .map_err(|e| Error::Env(format!("创建 Firefox profile 失败: {e}")))?;
-    std::fs::write(
-        dir.path().join("user.js"),
-        format!("user_pref(\"marionette.port\", {port});\n"),
-    )
-    .map_err(|e| Error::Env(format!("failed to write profile user.js: {e}")))?;
+    let mut prefs = format!("user_pref(\"marionette.port\", {port});\n");
+    if let Some(p) = proxy {
+        // scheme 已由 resolve_with 校验；此处防御性再解析（失败即 env 错误、不静默直连，
+        // 避免"以为走了代理实际直连"的隐蔽行为）
+        let url = url::Url::parse(p)
+            .map_err(|e| Error::Env(format!("failed to parse proxy URL '{p}': {e}")))?;
+        let host = url
+            .host_str()
+            .ok_or_else(|| Error::Env(format!("proxy URL missing host: {p}")))?;
+        let proxy_port = url.port().unwrap_or_else(|| match url.scheme() {
+            "https" => 443,
+            _ => 80,
+        });
+        prefs.push_str(&format!(
+            "user_pref(\"network.proxy.type\", 1);\n\
+             user_pref(\"network.proxy.http\", \"{host}\");\n\
+             user_pref(\"network.proxy.http_port\", {proxy_port});\n\
+             user_pref(\"network.proxy.ssl\", \"{host}\");\n\
+             user_pref(\"network.proxy.ssl_port\", {proxy_port});\n"
+        ));
+    }
+    std::fs::write(dir.path().join("user.js"), prefs)
+        .map_err(|e| Error::Env(format!("failed to write profile user.js: {e}")))?;
     Ok(dir)
 }
 
@@ -466,6 +486,35 @@ mod tests {
         let mut buf = vec![0u8; len];
         stream.read_exact(&mut buf).await.unwrap();
         serde_json::from_slice(&buf).unwrap()
+    }
+
+    #[test]
+    fn profile_writes_marionette_port_only_without_proxy() {
+        let dir = create_profile(4242, None).expect("profile");
+        let prefs = std::fs::read_to_string(dir.path().join("user.js")).unwrap();
+        assert!(prefs.contains("marionette.port"));
+        assert!(
+            !prefs.contains("network.proxy.type"),
+            "无代理时不应写代理偏好"
+        );
+    }
+
+    #[test]
+    fn profile_writes_proxy_prefs_for_http_proxy() {
+        let dir = create_profile(4242, Some("http://127.0.0.1:7890")).expect("profile");
+        let prefs = std::fs::read_to_string(dir.path().join("user.js")).unwrap();
+        assert!(prefs.contains("user_pref(\"network.proxy.type\", 1);"));
+        assert!(prefs.contains("user_pref(\"network.proxy.http\", \"127.0.0.1\");"));
+        assert!(prefs.contains("user_pref(\"network.proxy.http_port\", 7890);"));
+        assert!(prefs.contains("user_pref(\"network.proxy.ssl\", \"127.0.0.1\");"));
+        assert!(prefs.contains("user_pref(\"network.proxy.ssl_port\", 7890);"));
+    }
+
+    #[test]
+    fn profile_proxy_defaults_port_by_scheme() {
+        let dir = create_profile(1, Some("https://proxy.example.com")).expect("profile");
+        let prefs = std::fs::read_to_string(dir.path().join("user.js")).unwrap();
+        assert!(prefs.contains("user_pref(\"network.proxy.http_port\", 443);"));
     }
 
     /// 握手 + 命令/响应 + 事件帧穿插 + id 匹配。

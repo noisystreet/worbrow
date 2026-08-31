@@ -73,12 +73,14 @@ impl std::fmt::Debug for SessionPool {
 }
 
 impl SessionPool {
-    /// 生产创建：会话经 `drivers::resolve(kind)` 建立。
+    /// 生产创建：会话经 `drivers::resolve_with(kind, proxy)` 建立（`proxy` 为 HTTP/HTTPS
+    /// 代理，ADR-013；`None` = 直连/系统代理）。
     pub fn new(
         kind: BrowserKind,
         max_sessions: usize,
         idle_ttl: Duration,
         max_idle: usize,
+        proxy: Option<String>,
     ) -> Arc<Self> {
         let spawn_kind = kind;
         Self::with_spawn(
@@ -86,7 +88,13 @@ impl SessionPool {
             max_sessions,
             idle_ttl,
             max_idle,
-            Box::new(move || Box::pin(crate::drivers::resolve(spawn_kind))),
+            Box::new(move || {
+                // 闭包为 Fn（可多次调用）：每次 clone 一份移入 async block，借用不逃逸
+                let proxy = proxy.clone();
+                Box::pin(
+                    async move { crate::drivers::resolve_with(spawn_kind, proxy.as_deref()).await },
+                )
+            }),
         )
     }
 

@@ -69,6 +69,17 @@ fn unknown_engine_is_cli_error() {
     );
 }
 
+/// `--proxy`：非法代理（非 http/https）→ 参数错误 exit 2；校验在 resolve 前置，
+/// 不启动浏览器（CLI 无浏览器环境也稳定，CI 安全）。
+#[test]
+fn invalid_proxy_is_cli_error() {
+    let (code, out) = run(&["--proxy", "socks5://127.0.0.1:1080", "rust", "--json"]);
+    assert_eq!(code, 2);
+    let json = parse_json(&out);
+    assert_eq!(json["error"]["code"], "cli");
+    assert!(json["error"]["message"].as_str().unwrap().contains("proxy"));
+}
+
 /// `worbrow fetch`：非法 URL（file scheme）→ 参数错误 exit 2 + 统一失败包。
 /// URL 校验在 app 层前置（不启动浏览器），CLI 无浏览器环境也稳定（CI 安全）。
 #[test]

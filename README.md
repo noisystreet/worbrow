@@ -24,6 +24,7 @@ cargo run -- "rust" --freshness week --safesearch strict                       #
 cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # site/file-type filter
 cargo run -- "rust" --engine bing,duckduckgo   # engine fallback chain (auto-tries the next on captcha/low-quality/low-yield)
 cargo run -- "rust" --retry 2                  # backoff retry on transient network errors (exponential backoff capped at 8s)
+cargo run -- "rust" --proxy http://127.0.0.1:7890  # HTTP/HTTPS proxy (ADR-013)
 # body fetch + structured extraction (ADR-009): pass an explicit URL, get cleaned text and optional fields
 cargo run -- fetch https://example.com/rust --json
 cargo run -- fetch https://example.com --extract price,rating --json    # field extraction (allowlist)
@@ -31,6 +32,8 @@ cargo run -- fetch https://example.com --no-text --extract price        # fields
 ```
 
 Backend status: `firefox` (Marionette, hand-written protocol) and `chrome` (CDP, hand-written protocol) are both implemented; `fake` is for tests/smoke. Protocol implementation: [ADR-002](docs/adr/0002-browser-driver-protocols.md).
+
+**HTTP/HTTPS proxy (ADR-013)**: `--proxy http://host:port` (or `https://host:port`) applies to the browser launch (CDP `--proxy-server`, Marionette `network.proxy.*`) and the static SERP HTTP GET (reqwest). Invalid proxy URLs → exit 2, checked before the browser starts. Without `--proxy`, browsers use system proxy settings and the HTTP client reads `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY`. Design: [ADR-013](docs/adr/0013-proxy-support.md).
 
 ### Installation
 
@@ -57,7 +60,7 @@ Tool results reuse the output contract (schema v1). With `compact=true`, `web_se
 Design: [ADR-005](docs/adr/0005-mcp-stdio-server.md) and [ADR-009](docs/adr/0009-fetch-page.md).
 (If MCP is not needed: `cargo build --no-default-features`)
 
-`worbrow mcp --idle-timeout <secs>`: exits automatically after this long without any request (prevents orphan processes after an agent crashes; 0 = disabled, the default).
+`worbrow mcp --idle-timeout <secs>`: exits automatically after this long without any request (prevents orphan processes after an agent crashes; 0 = disabled, the default). `worbrow mcp --proxy http://host:port` applies a proxy to all sessions in the process (server-level; tools have no per-request proxy).
 
 **Session pooling (MCP long-running)**: browser processes are reused inside the MCP process, removing the 2-5s spawn overhead per search.
 `--max-sessions <n>` concurrency cap (default 1 = serial reuse, excess queued), `--session-ttl <sec>` idle-session reclamation threshold (default 60s); idle sessions past TTL are recycled, crashed sessions auto-rebuilt, transparent to agents (schema v1 unchanged). Design: [ADR-007](docs/adr/0007-mcp-session-pool.md).

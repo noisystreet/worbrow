@@ -4,6 +4,14 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+### Added
+
+- **HTTP/HTTPS 代理支持（ADR-013）**：新增 `--proxy http://host:port`（CLI 全局 /
+  lib `Config::with_proxy` / `worbrow mcp --proxy`，server 级）——同时作用于浏览器启动
+  （CDP `--proxy-server`、Marionette `network.proxy.*`）与静态 SERP HTTP 直抓（reqwest）。
+  非法代理 URL（非 http/https、缺 host）在启动浏览器前校验并返回 `exit 2`；不传时保持
+  直连/系统代理（HTTP 客户端读 `HTTP_PROXY` 等环境变量）。JSON schema / 退出码不变。
+
 ### Fixed
 
 - **MCP `web_search` tool description**：engine parameter docs now include `baidu`

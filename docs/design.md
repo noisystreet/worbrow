@@ -85,6 +85,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-010](adr/0010-fetch-enhance.md) | fetch 补强（`meta.http_status` + `wait_selector` SPA 等待） | 已接受 |
 | [ADR-011](adr/0011-static-html-http.md) | 静态 SERP 优先 HTTP GET；默认引擎链 DDG 优先 | 已接受 |
 | [ADR-012](adr/0012-hub-result-kind.md) | 枢纽页 `result_kind=hub` 不计入内容型结果 | 已接受 |
+| [ADR-013](adr/0013-proxy-support.md) | HTTP/HTTPS 代理支持（`--proxy`，三处生效） | 已接受 |
 
 ---
 
@@ -185,10 +186,12 @@ clap derive 定义参数（示意）：
 | `--screenshot <path>` | path | 无 | 失败或成功时保存页面截图（调试） |
 | `--dump-html <path>` | path | 无 | 失败或 low_yield 时保存原始 HTML（调试） |
 | `--retry` | usize | 0 | 瞬时网络错误重试次数（指数退避封顶 8s，计入 timeout；ADR-008） |
+| `--proxy` | url | 无 | HTTP/HTTPS 代理（`http://host:port`/`https://host:port`，ADR-013）；CDP `--proxy-server`、Marionette `network.proxy.*`、HTTP 直抓 reqwest 三处生效 |
 
 子命令：`worbrow doctor`（环境自检，§10）、`worbrow list`（列出引擎）、
 `worbrow fetch <url>`（正文抓取 + 结构化提取，ADR-009，§7.1 fetch 包）、
-`worbrow mcp`（MCP stdio，ADR-005；`--idle-timeout` / `--max-sessions` / `--session-ttl`）。
+`worbrow mcp`（MCP stdio，ADR-005；`--idle-timeout` / `--max-sessions` / `--session-ttl` /
+`--proxy`（ADR-013））。
 
 `main.rs` 职责：初始化 tracing（仅 stderr）→ 子命令分发 → `app::run`（搜索）或
 `app::fetch`（抓取）→ 输出 JSON 包并映射退出码。任何 panic 由顶层 `catch_unwind`
@@ -554,7 +557,8 @@ fixture 更新纪律：引擎改版导致解析失败时，`engine_error` 上报
 
 开放问题：
 1. 二进制命名（已定为 `worbrow`）。
-2. 是否提供 `--proxy`（影响两个后端的启动参数面；尚未实现）。
+2. 是否提供 `--proxy`（✅ 已定——已落地，见 [ADR-013](adr/0013-proxy-support.md)；
+   仅 http/https，socks 留作后续需求驱动）。
 3. DuckDuckGo 的 html 版作为默认端点（已落地：`html.duckduckgo.com/html/` + ADR-011 HTTP 直抓）。
 
 ---

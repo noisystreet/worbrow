@@ -46,7 +46,12 @@ fn run_cli() -> ExitCode {
                 idle_timeout,
                 max_sessions,
                 session_ttl,
-            } => mcp_main(*idle_timeout, *max_sessions, *session_ttl),
+            } => mcp_main(
+                *idle_timeout,
+                *max_sessions,
+                *session_ttl,
+                cli.proxy.clone(),
+            ),
         };
     }
 
@@ -73,6 +78,7 @@ fn run_cli() -> ExitCode {
         .with_safesearch(cli.safesearch.map(|s| s.to_domain()))
         .with_site(cli.site)
         .with_filetype(cli.filetype)
+        .with_proxy(cli.proxy)
         .with_retry(cli.retry);
 
     // 同步入口：内部管理 tokio runtime（CLI 保持薄封装）
@@ -168,6 +174,7 @@ fn fetch_main(
         .with_wait_selector(wait_selector.clone())
         .with_timeout(std::time::Duration::from_secs(cli.timeout))
         .with_retry(cli.retry)
+        .with_proxy(cli.proxy.clone())
         .with_screenshot(cli.screenshot.clone())
         .with_dump_html(cli.dump_html.clone());
     match app::fetch(config) {
@@ -197,7 +204,12 @@ fn fetch_main(
 /// 与普通搜索不同：stdout 是 MCP JSON-RPC 通道，**不**走 `finish()` 输出契约包；
 /// 工具结果经 MCP `tools/call` 响应返回。错误仅写 stderr + exit 1。
 #[cfg(feature = "mcp")]
-fn mcp_main(idle_timeout: u64, max_sessions: usize, session_ttl: u64) -> ExitCode {
+fn mcp_main(
+    idle_timeout: u64,
+    max_sessions: usize,
+    session_ttl: u64,
+    proxy: Option<String>,
+) -> ExitCode {
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -207,10 +219,11 @@ fn mcp_main(idle_timeout: u64, max_sessions: usize, session_ttl: u64) -> ExitCod
     };
     // 0 = 禁用空闲超时（保持"等客户端断开"语义）
     let idle = (idle_timeout > 0).then(|| std::time::Duration::from_secs(idle_timeout));
-    // 会话池：并发上限 ≥1（防呆），TTL 秒数 → Duration
+    // 会话池：并发上限 ≥1（防呆），TTL 秒数 → Duration；代理（ADR-013）作用于所有会话
     let pool = Some(worbrow::mcp::PoolConfig {
         max_sessions: max_sessions.max(1),
         idle_ttl: std::time::Duration::from_secs(session_ttl),
+        proxy,
     });
     match runtime.block_on(worbrow::mcp::serve_stdio(idle, pool)) {
         Ok(()) => {

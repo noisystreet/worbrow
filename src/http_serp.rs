@@ -2,7 +2,8 @@
 //!
 //! 仅 http/https、有限重定向、响应体上限；失败由调用方回退浏览器。`domain` 不依赖本模块。
 
-use std::sync::OnceLock;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use async_trait::async_trait;
@@ -22,18 +23,58 @@ pub(crate) trait HtmlGet: Send + Sync {
     async fn get(&self, url: &Url, timeout: Duration) -> Result<String, Error>;
 }
 
-/// 共享 reqwest 客户端（连接池）；单次请求仍带超时。
-pub(crate) struct ReqwestHtmlGet;
+/// HTTP GET 客户端（连接池复用；单次请求仍带超时）。
+///
+/// 构造时按代理配置取用**缓存的** reqwest 客户端：`proxy = Some(..)` 时经代理直抓
+/// （ADR-013），`None` 时直连（reqwest 默认仍读取 `HTTP_PROXY`/`HTTPS_PROXY` 等系统代理
+/// 环境变量）。同一代理配置复用同一客户端（连接池 + TLS 会话缓存跨请求生效）。
+pub(crate) struct ReqwestHtmlGet(Arc<reqwest::Client>);
+
+impl ReqwestHtmlGet {
+    /// 取用按代理缓存的客户端；代理为 http/https URL（非法时告警并忽略，保持"尽力"语义）。
+    pub fn new(proxy: Option<&str>) -> Self {
+        Self(client_for(proxy))
+    }
+}
 
 #[async_trait]
 impl HtmlGet for ReqwestHtmlGet {
     async fn get(&self, url: &Url, timeout: Duration) -> Result<String, Error> {
-        get_html(url, timeout).await
+        get_with(&self.0, url, timeout).await
     }
 }
 
-pub(crate) async fn get_html(url: &Url, timeout: Duration) -> Result<String, Error> {
-    get_with(client(), url, timeout).await
+/// 按代理配置缓存的客户端注册表：避免每次搜索重建 Client（重建会丢连接池/TLS 会话）。
+/// 代理是进程级配置（CLI/MCP 启动参数），数量有限，无容量淘汰需求。
+fn client_for(proxy: Option<&str>) -> Arc<reqwest::Client> {
+    static CLIENTS: OnceLock<Mutex<HashMap<Option<String>, Arc<reqwest::Client>>>> =
+        OnceLock::new();
+    let key = proxy.map(str::to_owned);
+    match CLIENTS.get_or_init(|| Mutex::new(HashMap::new())).lock() {
+        Ok(mut map) => map
+            .entry(key.clone())
+            .or_insert_with(|| Arc::new(build_client(key.as_deref())))
+            .clone(),
+        // 锁中毒兜底：退化为临时客户端（不阻塞搜索，仅丢失连接复用）
+        Err(_) => Arc::new(build_client(proxy)),
+    }
+}
+
+fn build_client(proxy: Option<&str>) -> reqwest::Client {
+    let mut builder = reqwest::Client::builder()
+        .user_agent(USER_AGENT)
+        .redirect(reqwest::redirect::Policy::limited(10));
+    if let Some(p) = proxy {
+        match reqwest::Proxy::all(p) {
+            Ok(proxy) => builder = builder.proxy(proxy),
+            Err(e) => {
+                tracing::warn!(proxy = p, "ignoring invalid proxy for HTTP SERP: {e}")
+            }
+        }
+    }
+    builder
+        .build()
+        .expect("reqwest Client builder should succeed")
 }
 
 async fn get_with(http: &reqwest::Client, url: &Url, timeout: Duration) -> Result<String, Error> {
@@ -71,17 +112,6 @@ async fn get_with(http: &reqwest::Client, url: &Url, timeout: Duration) -> Resul
         )));
     }
     Ok(String::from_utf8_lossy(&bytes).into_owned())
-}
-
-fn client() -> &'static reqwest::Client {
-    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-    CLIENT.get_or_init(|| {
-        reqwest::Client::builder()
-            .user_agent(USER_AGENT)
-            .redirect(reqwest::redirect::Policy::limited(10))
-            .build()
-            .expect("reqwest Client builder should succeed")
-    })
 }
 
 #[cfg(test)]
@@ -135,10 +165,51 @@ mod tests {
     #[tokio::test]
     async fn get_html_rejects_non_http_scheme() {
         let url = Url::parse("file:///tmp/serp.html").expect("url");
-        let err = get_html(&url, Duration::from_secs(1))
+        let err = ReqwestHtmlGet::new(None)
+            .get(&url, Duration::from_secs(1))
             .await
             .expect_err("file 应拒绝");
         assert!(matches!(err, Error::Network(_)));
+    }
+
+    /// 配置代理后请求应**经代理**发出：假代理监听本机端口并记录请求行——
+    /// reqwest 对 http 代理发 absolute-form（`GET http://…`）而非 origin-form。
+    #[tokio::test]
+    async fn get_html_uses_proxy_when_configured() {
+        use std::sync::Arc as StdArc;
+
+        let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let seen = StdArc::new(std::sync::Mutex::new(None::<String>));
+        let seen_task = StdArc::clone(&seen);
+        tokio::spawn(async move {
+            let (mut sock, _) = listener.accept().await.expect("accept");
+            let mut buf = vec![0u8; 1024];
+            let n = sock.read(&mut buf).await.expect("read");
+            *seen_task.lock().expect("lock") =
+                Some(String::from_utf8_lossy(&buf[..n]).into_owned());
+            let body = "<html>via proxy</html>";
+            let header = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                body.len()
+            );
+            let _ = sock.write_all(format!("{header}{body}").as_bytes()).await;
+        });
+
+        let proxy = format!("http://{addr}");
+        let html = ReqwestHtmlGet::new(Some(&proxy))
+            .get(
+                &Url::parse("http://example.com/html/").expect("url"),
+                Duration::from_secs(2),
+            )
+            .await
+            .expect("经代理 GET 应成功");
+        assert!(html.contains("via proxy"));
+        let req = seen.lock().expect("lock").clone().expect("代理应收到请求");
+        assert!(
+            req.starts_with("GET http://"),
+            "http 代理请求应为 absolute-form: {req}"
+        );
     }
 
     #[tokio::test]
