@@ -177,9 +177,9 @@ pub struct SearchParams {
     /// 搜索关键词（必填，1-512 字符）
     #[schemars(description = "search query (1-512 characters)")]
     pub query: String,
-    /// 搜索引擎（逗号分隔 = 降级尝试顺序，如 "bing,duckduckgo"）
+    /// 搜索引擎（逗号分隔 = 降级尝试顺序，如 "duckduckgo,baidu,bing"）
     #[schemars(
-        description = "search engine (currently supported: duckduckgo/bing; comma-separated fallback order, e.g. bing,duckduckgo)",
+        description = "search engine (currently supported: duckduckgo/baidu/bing; comma-separated fallback order, e.g. duckduckgo,baidu,bing)",
         default = "default_engine"
     )]
     #[serde(default = "default_engine")]

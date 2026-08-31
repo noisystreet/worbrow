@@ -4,6 +4,11 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+### Fixed
+
+- **MCP `web_search` tool description**：engine parameter docs now include `baidu`
+  (was `duckduckgo/bing` only; baidu is a member of the default chain `duckduckgo,baidu,bing`)
+
 ## [0.2.2] - 2026-08-23
 
 ### Fixed
