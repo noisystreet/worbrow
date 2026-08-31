@@ -100,8 +100,9 @@ impl Drop for ChildGuard {
 
 impl CdpDriver {
     /// 启动 Chrome 并完成连接：find → 校验版本 → spawn → 发现 ws url → 握手
-    /// （design.md §6.2 步骤 3）。
-    pub async fn spawn() -> Result<Box<dyn BrowserDriver>, Error> {
+    /// （design.md §6.2 步骤 3）。`proxy`（http/https，ADR-013）透传给
+    /// `--proxy-server=` 启动参数（`None` = 直连/系统代理）。
+    pub async fn spawn(proxy: Option<&str>) -> Result<Box<dyn BrowserDriver>, Error> {
         let binary = discovery::find_browser(BrowserKind::Chrome)?;
         // 版本矩阵校验（design.md §10.2）：Chrome/Edge ≥ 109 才支持 --headless=new
         if let Some(version) = discovery::browser_major_version(&binary)
@@ -128,6 +129,10 @@ impl CdpDriver {
             // 必须用等号形式：空格形式会把路径当第二个 URL target（headless 不支持多 target）
             .arg(format!("--user-data-dir={}", profile.path().display()))
             .arg("about:blank");
+        // HTTP/HTTPS 代理（ADR-013）：透传启动参数（scheme 已由 resolve_with 校验）
+        if let Some(proxy) = proxy {
+            cmd.arg(format!("--proxy-server={proxy}"));
+        }
         // Chrome 自身日志重定向丢弃（stdout 防污染输出契约管道，design.md §2）；
         // stderr 写入 devtools.log 供端口发现（随 profile 一起清理）
         cmd.stdout(Stdio::null());

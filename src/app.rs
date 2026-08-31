@@ -130,6 +130,10 @@ pub struct Config {
     site: Option<String>,
     /// 文件类型过滤（`SearchQuery.filetype`，query 级 `filetype:` 语法）；`None` = 不限类型。
     filetype: Option<String>,
+    /// HTTP/HTTPS 代理（`--proxy <url>`；http/https scheme）；`None` = 直连/系统代理。
+    /// 传递到浏览器启动参数（CDP `--proxy-server` / Marionette `network.proxy.*`）与
+    /// 静态 SERP HTTP 客户端（reqwest Proxy）；design.md §14 开放问题 #2 落地（ADR-013）。
+    proxy: Option<String>,
     /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
     driver: Option<Box<dyn BrowserDriver>>,
     /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
@@ -159,6 +163,7 @@ impl Config {
             safesearch: None,
             site: None,
             filetype: None,
+            proxy: None,
             driver: None,
             provider: None,
             html_get: None,
@@ -240,6 +245,14 @@ impl Config {
         self
     }
 
+    /// HTTP/HTTPS 代理（`http://host:port` 或 `https://host:port`；`None` = 直连/系统代理）。
+    /// 应用到浏览器后端启动与静态 SERP HTTP 直抓；非法代理 URL 在 `run`/`fetch` 时返回
+    /// `Error::Cli`（exit 2，不启动浏览器）。
+    pub fn with_proxy(mut self, proxy: Option<String>) -> Self {
+        self.proxy = proxy;
+        self
+    }
+
     /// 瞬时网络错误重试次数（指数退避，封顶；0 = 不重试）。
     /// 仅 `Error::Network` 触发重试；验证码/参数错误/超时不重试（避免无意义放大延迟）。
     pub fn with_retry(mut self, retry: usize) -> Self {
@@ -288,6 +301,8 @@ pub struct FetchConfig {
     retry: usize,
     screenshot: Option<PathBuf>,
     dump_html: Option<PathBuf>,
+    /// HTTP/HTTPS 代理（同 [`Config`] 语义；ADR-013）。
+    proxy: Option<String>,
     /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
     driver: Option<Box<dyn BrowserDriver>>,
 }
@@ -307,6 +322,7 @@ impl FetchConfig {
             retry: 0,
             screenshot: None,
             dump_html: None,
+            proxy: None,
             driver: None,
         }
     }
@@ -356,6 +372,12 @@ impl FetchConfig {
 
     pub fn with_dump_html(mut self, path: Option<PathBuf>) -> Self {
         self.dump_html = path;
+        self
+    }
+
+    /// HTTP/HTTPS 代理（同 [`Config::with_proxy`] 语义；`None` = 直连/系统代理）。
+    pub fn with_proxy(mut self, proxy: Option<String>) -> Self {
+        self.proxy = proxy;
         self
     }
 
@@ -464,7 +486,7 @@ pub async fn run(mut config: Config) -> Result<Outcome, Error> {
     //（design.md §8：成功/错误/超时路径均回收浏览器子进程，防残留）
     let mut driver = match config.driver.take() {
         Some(d) => d,
-        None => crate::drivers::resolve(config.browser).await?,
+        None => crate::drivers::resolve_with(config.browser, config.proxy.as_deref()).await?,
     };
     run_with(&mut *driver, config).await
 }
@@ -589,7 +611,7 @@ pub async fn run_fetch(mut config: FetchConfig) -> Result<FetchedPage, Error> {
     let _ = normalize_fetch_url(&config.url)?;
     let mut driver = match config.driver.take() {
         Some(d) => d,
-        None => crate::drivers::resolve(config.browser).await?,
+        None => crate::drivers::resolve_with(config.browser, config.proxy.as_deref()).await?,
     };
     run_fetch_with(&mut *driver, config).await
 }
@@ -790,6 +812,7 @@ async fn search_attempt(
                 driver,
                 timeout_dur,
                 config.html_get.as_deref(),
+                config.proxy.as_deref(),
             )
             .await?;
             let low_yield = content_count(&results) < LOW_YIELD_THRESHOLD;
@@ -833,6 +856,7 @@ async fn search_engine_chain(
                 driver,
                 timeout_dur,
                 config.html_get.as_deref(),
+                config.proxy.as_deref(),
             )
             .await,
             &*provider,
@@ -936,6 +960,7 @@ async fn search_one(
     driver: &mut dyn BrowserDriver,
     timeout_dur: Duration,
     html_get: Option<&dyn crate::http_serp::HtmlGet>,
+    proxy: Option<&str>,
 ) -> Result<(String, Vec<SearchResult>, bool, usize), Error> {
     let wait_budget = timeout_dur.min(WAIT_BUDGET);
     let mut seen = std::collections::HashSet::new();
@@ -950,7 +975,7 @@ async fn search_one(
     for page in 1..=query.pages {
         fetched_pages += 1;
         let (html, page_captcha, results) =
-            fetch_page(provider, query, driver, page, wait_budget, html_get).await?;
+            fetch_page(provider, query, driver, page, wait_budget, html_get, proxy).await?;
         captcha |= page_captcha;
         last_html = html;
         // 抽取并去重合并：先按 URL，再按域名截断（防单一来源刷屏）
@@ -1004,10 +1029,11 @@ async fn try_static_http(
     url: &url::Url,
     wait_budget: Duration,
     html_get: Option<&dyn crate::http_serp::HtmlGet>,
+    proxy: Option<&str>,
 ) -> Option<(String, bool, Vec<SearchResult>)> {
     let fetched = match html_get {
         Some(client) => client.get(url, wait_budget).await,
-        None => ReqwestHtmlGet.get(url, wait_budget).await,
+        None => ReqwestHtmlGet::new(proxy).get(url, wait_budget).await,
     };
     match fetched {
         Ok(html) => match provider.parse(&html) {
@@ -1045,6 +1071,7 @@ async fn fetch_page(
     page: usize,
     wait_budget: Duration,
     html_get: Option<&dyn crate::http_serp::HtmlGet>,
+    proxy: Option<&str>,
 ) -> Result<(String, bool, Vec<SearchResult>), Error> {
     let url = if page == 1 {
         provider.result_url(query)
@@ -1053,7 +1080,7 @@ async fn fetch_page(
     };
     if provider.prefer_http_html()
         && driver.allows_http_serp()
-        && let Some(hit) = try_static_http(provider, &url, wait_budget, html_get).await
+        && let Some(hit) = try_static_http(provider, &url, wait_budget, html_get, proxy).await
     {
         return Ok(hit);
     }
@@ -1122,6 +1149,36 @@ mod tests {
             .with_timeout(Duration::from_secs(5));
         assert_eq!(c.max_results, 1, "max_results 至少为 1");
         assert_eq!(c.timeout, Duration::from_secs(5));
+    }
+
+    #[test]
+    fn config_proxy_builder_sets_field() {
+        let c = Config::new("q", "bing", BrowserKind::Fake);
+        assert!(c.proxy.is_none());
+        let c = c.with_proxy(Some("http://127.0.0.1:7890".into()));
+        assert_eq!(c.proxy.as_deref(), Some("http://127.0.0.1:7890"));
+    }
+
+    /// 合法代理 + Fake 后端：校验通过、Fake 忽略代理，正常返回结果（ADR-013）。
+    #[tokio::test]
+    async fn run_with_valid_proxy_succeeds_on_fake() {
+        let cfg = Config::new("rust async", "bing", BrowserKind::Fake)
+            .with_proxy(Some("http://127.0.0.1:7890".into()));
+        let outcome = run(cfg).await.expect("合法代理不应阻塞搜索");
+        assert!(!outcome.results.is_empty());
+    }
+
+    /// 非法代理 → `Error::Cli`（exit 2），不启动浏览器。
+    #[tokio::test]
+    async fn run_with_invalid_proxy_returns_cli_error() {
+        let cfg = Config::new("rust async", "bing", BrowserKind::Fake)
+            .with_proxy(Some("socks5://127.0.0.1:1080".into()));
+        // Outcome 未实现 Debug，用 match 断言而非 expect_err
+        let err = match run(cfg).await {
+            Err(e) => e,
+            Ok(_) => panic!("非法代理应报参数错误"),
+        };
+        assert!(matches!(err, Error::Cli(_)));
     }
 
     #[test]

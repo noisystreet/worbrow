@@ -235,7 +235,7 @@ async fn pool_reuses_same_firefox_process() {
 
     let _lock = PROC_LOCK.lock().await;
     let before = firefox_count();
-    let pool = SessionPool::new(BrowserKind::Firefox, 1, Duration::from_secs(60), 4);
+    let pool = SessionPool::new(BrowserKind::Firefox, 1, Duration::from_secs(60), 4, None);
 
     // 第一次 acquire：启动一个 Firefox 进程
     let g1 = pool

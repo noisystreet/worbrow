@@ -26,6 +26,7 @@ cargo run -- "rust" --freshness week --safesearch strict                       #
 cargo run -- "rust" --site doc.rust-lang.org --filetype pdf                    # 站点/文件类型过滤
 cargo run -- "rust" --engine bing,duckduckgo   # 引擎降级链（验证码/低质/低产时自动尝试下一个）
 cargo run -- "rust" --retry 2                  # 瞬时网络错误退避重试（指数退避封顶 8s）
+cargo run -- "rust" --proxy http://127.0.0.1:7890  # HTTP/HTTPS 代理（ADR-013）
 # 正文抓取 + 结构化提取（ADR-009）：agent 显式传入 URL，返回清洗正文与可选字段
 cargo run -- fetch https://example.com/rust --json
 cargo run -- fetch https://example.com --extract price,rating --json    # 字段提取（allowlist）
@@ -34,6 +35,11 @@ cargo run -- fetch https://example.com --no-text --extract price        # 只要
 
 当前后端状态：`firefox`（Marionette，自研协议）与 `chrome`（CDP，自研协议）均已实现；
 `fake` 供测试/冒烟。协议实现见 [ADR-002](docs/adr/0002-browser-driver-protocols.md)。
+
+**HTTP/HTTPS 代理（ADR-013）**：`--proxy http://host:port`（或 `https://host:port`）同时作用于
+浏览器启动（CDP `--proxy-server`、Marionette `network.proxy.*`）与静态 SERP HTTP 直抓（reqwest）；
+非法代理 URL → exit 2（启动浏览器前校验）。不传 `--proxy` 时，浏览器走系统代理，
+HTTP 客户端读 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY`。设计见 [ADR-013](docs/adr/0013-proxy-support.md)。
 
 ### 安装
 
@@ -66,7 +72,8 @@ rank/title/url（省 agent 上下文 token，meta 完整）。
 （若不需要 MCP：`cargo build --no-default-features`）
 
 `worbrow mcp --idle-timeout <secs>`：超过该时长无任何请求自动退出（防 agent 崩溃后
-残留进程；0 = 禁用，默认）。
+残留进程；0 = 禁用，默认）。`worbrow mcp --proxy http://host:port` 对进程内所有会话生效
+（server 级；工具无 per-request proxy）。
 
 **会话池化（MCP 长驻）**：MCP 进程内复用浏览器进程，消除每次搜索 spawn 2-5s 开销。
 `--max-sessions <n>` 并发上限（默认 1 = 串行复用，超限排队）、`--session-ttl <sec>`

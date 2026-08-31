@@ -136,11 +136,17 @@ struct PoolRegistry {
 }
 
 impl PoolRegistry {
-    fn new(max_sessions: usize, idle_ttl: Duration) -> Self {
+    fn new(max_sessions: usize, idle_ttl: Duration, proxy: Option<String>) -> Self {
         Self {
-            fake: SessionPool::new(BrowserKind::Fake, max_sessions, idle_ttl, 4),
-            chrome: SessionPool::new(BrowserKind::Chrome, max_sessions, idle_ttl, 4),
-            firefox: SessionPool::new(BrowserKind::Firefox, max_sessions, idle_ttl, 4),
+            fake: SessionPool::new(BrowserKind::Fake, max_sessions, idle_ttl, 4, proxy.clone()),
+            chrome: SessionPool::new(
+                BrowserKind::Chrome,
+                max_sessions,
+                idle_ttl,
+                4,
+                proxy.clone(),
+            ),
+            firefox: SessionPool::new(BrowserKind::Firefox, max_sessions, idle_ttl, 4, proxy),
         }
     }
 
@@ -163,9 +169,9 @@ pub struct SearchServer {
 
 impl SearchServer {
     /// 以指定池配置创建 server（MCP 长驻进程内共享）。
-    fn with_pools(max_sessions: usize, idle_ttl: Duration) -> Self {
+    fn with_pools(max_sessions: usize, idle_ttl: Duration, proxy: Option<String>) -> Self {
         Self {
-            pools: Arc::new(PoolRegistry::new(max_sessions, idle_ttl)),
+            pools: Arc::new(PoolRegistry::new(max_sessions, idle_ttl, proxy)),
             cache: Arc::new(SearchCache::new(DEFAULT_CACHE_TTL, DEFAULT_CACHE_CAPACITY)),
         }
     }
@@ -676,12 +682,15 @@ impl<R: AsyncRead + Unpin> AsyncRead for ActivityReader<R> {
 }
 
 /// 会话池配置（MCP 长驻场景启用；roadmap-session-pool.md §6 已定决策默认值）。
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub struct PoolConfig {
     /// 并发上限（默认 1：单用户串行省内存；超限请求排队）。
     pub max_sessions: usize,
     /// 空闲会话回收阈值（默认 60s）。
     pub idle_ttl: Duration,
+    /// HTTP/HTTPS 代理（`--proxy <url>`；ADR-013，`None` = 直连/系统代理）。
+    /// 作用于 server 内所有浏览器会话的启动参数（MCP 工具无 per-request proxy）。
+    pub proxy: Option<String>,
 }
 
 impl Default for PoolConfig {
@@ -689,6 +698,7 @@ impl Default for PoolConfig {
         Self {
             max_sessions: DEFAULT_MAX_SESSIONS,
             idle_ttl: DEFAULT_IDLE_TTL,
+            proxy: None,
         }
     }
 }
@@ -698,10 +708,20 @@ impl Default for PoolConfig {
 /// - `idle: None`：一直等待客户端断开（stdin EOF）后退出（原行为）。
 /// - `idle: Some(d)`：超过 `d` 时长无任何请求则自动退出（防 agent 崩溃后残留进程）。
 ///   检测覆盖整个生命周期：握手前（等 initialize）与握手后（等工具调用）同样生效。
+/// - `pool.proxy`：HTTP/HTTPS 代理（ADR-013），作用于所有浏览器会话；非法 URL → `Error::Cli`。
 pub async fn serve_stdio(idle: Option<Duration>, pool: Option<PoolConfig>) -> Result<(), Error> {
+    // 代理校验前置：非法代理在启动期报错，而非等首次搜索时浏览器启动失败
+    if let Some(p) = pool.as_ref().and_then(|p| p.proxy.as_deref()) {
+        crate::drivers::validate_proxy(p)?;
+    }
     let server = SearchServer::with_pools(
-        pool.map(|p| p.max_sessions).unwrap_or(DEFAULT_MAX_SESSIONS),
-        pool.map(|p| p.idle_ttl).unwrap_or(DEFAULT_IDLE_TTL),
+        pool.as_ref()
+            .map(|p| p.max_sessions)
+            .unwrap_or(DEFAULT_MAX_SESSIONS),
+        pool.as_ref()
+            .map(|p| p.idle_ttl)
+            .unwrap_or(DEFAULT_IDLE_TTL),
+        pool.and_then(|p| p.proxy),
     );
     let Some(idle) = idle else {
         return serve_until_eof(server).await;
@@ -837,6 +857,20 @@ mod tests {
             cache.get(&sample_key("async")).is_none(),
             "不同 query 不应命中"
         );
+    }
+
+    /// server 启动期代理校验：非法代理（socks scheme）→ `Error::Cli`，不启动任何会话。
+    #[tokio::test]
+    async fn serve_stdio_rejects_invalid_proxy() {
+        let pool = Some(PoolConfig {
+            max_sessions: 1,
+            idle_ttl: Duration::from_secs(60),
+            proxy: Some("socks5://127.0.0.1:1080".into()),
+        });
+        let err = serve_stdio(None, pool)
+            .await
+            .expect_err("非法代理应在启动期拒绝");
+        assert!(matches!(err, Error::Cli(_)));
     }
 
     /// TTL 过期：超时后 get 返回 None（LRU 清理）。

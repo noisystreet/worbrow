@@ -65,6 +65,10 @@ pub struct Cli {
     #[arg(long)]
     pub filetype: Option<String>,
 
+    /// HTTP/HTTPS proxy URL (e.g. http://127.0.0.1:7890; omit = direct/system proxy; ADR-013)
+    #[arg(long, global = true)]
+    pub proxy: Option<String>,
+
     /// Retry count for transient network errors (exponential backoff, capped; only network errors trigger)
     #[arg(long, global = true, default_value_t = 0)]
     pub retry: usize,
