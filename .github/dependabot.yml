@@ -1,0 +1,27 @@
+# Dependabot 依赖自动升级（cargo + github-actions 两个生态）。
+# 升级 PR 走完整 CI 门禁（fmt/clippy/test/deny/machete + 跨平台编译 --locked）；
+# minor/patch 归组为一个 PR 降低噪音，major 单独 PR 逐个审查。
+version: 2
+updates:
+  # Rust 依赖：CI 全程 --locked，升级 PR 会同步 Cargo.lock
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types:
+          - "minor"
+          - "patch"
+
+  # GitHub Actions：ci.yml / release.yml 中可打 tag 更新的 action
+  # （checkout、upload/download-artifact、action-gh-release 等；@stable/@main 分支引用不在其管辖范围）
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      all:
+        patterns:
+          - "*"
