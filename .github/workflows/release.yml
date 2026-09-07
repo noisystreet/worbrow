@@ -35,7 +35,7 @@ jobs:
             ext: zip
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@stable
 
@@ -84,7 +84,7 @@ jobs:
         run: cp target/debian/*.deb dist/
 
       - name: upload artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           # 每平台唯一 name：upload-artifact@v4 同名多 job 上传会互相覆盖，
           # publish 侧用 pattern 下载全部合并
@@ -97,7 +97,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           pattern: release-assets-*
           path: release/
@@ -107,7 +107,7 @@ jobs:
         run: (cd release && sha256sum * > SHA256SUMS)
 
       - name: create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: release/*
           generate_release_notes: true
