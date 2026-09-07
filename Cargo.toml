@@ -24,7 +24,7 @@ path = "src/main.rs"
 
 [dependencies]
 async-trait = "0.1.91"
-base64 = "0.22.1"
+base64 = "0.23.1"
 # default-features = false：仅保留 serde（契约序列化）与 clock（Utc::now）；
 # 去掉默认的 oldtime（遗留兼容）与 wasmbind（wasm 专属，原生编译无收益）
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock"] }
