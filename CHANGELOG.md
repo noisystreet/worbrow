@@ -11,6 +11,10 @@ This file records user-visible changes (Keep a Changelog style).
   重定向 ≤10、响应体 2MB 上限、超时取页面等待预算、`--proxy` 与 `HTTP_PROXY`
   等环境变量代理照旧生效；JSON schema / 退出码零变化
 
+- **依赖裁剪**：tracing-subscriber 去 `env-filter`（日志级别本就只用静态
+  `LevelFilter`，省去 matchers/regex-syntax 编译大户）、clap 去 `color`
+  （帮助/错误输出不再着色，stderr 日志着色不受影响）；依赖闭包 232 → 221 项
+
 ## [0.2.3] - 2026-08-31
 
 ### Added
