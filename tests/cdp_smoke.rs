@@ -17,6 +17,9 @@ static PROC_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 /// 统计本工具启动的 Chrome（按临时 user-data-dir 路径特征隔离）。
+///
+/// 上一个测试的 Chrome 可能仍在异步退出，基线快照可能被短暂抬高，
+/// 清理后计数会跌破基线：清理断言因此用 `<= before`（判据是进程数不高于基线）。
 fn chrome_count() -> usize {
     let out = Command::new("pgrep")
         .arg("-c")
@@ -52,7 +55,7 @@ async fn spawn_then_drop_kills_chrome() {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    assert_eq!(chrome_count(), before, "driver drop 后 Chrome 应被清理");
+    assert!(chrome_count() <= before, "driver drop 后 Chrome 应被清理");
 }
 
 /// 显式取消：abort 持有 driver 的任务 → driver drop → Chrome 进程应被清理。
@@ -86,7 +89,7 @@ async fn abort_cancels_and_kills_browser() {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    assert_eq!(chrome_count(), before, "任务取消后 Chrome 应被清理");
+    assert!(chrome_count() <= before, "任务取消后 Chrome 应被清理");
 }
 
 /// app 超时：全流程 timeout 触发 → driver drop → Chrome 进程应被回收。
@@ -106,7 +109,7 @@ async fn search_timeout_recycles_browser() {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    assert_eq!(chrome_count(), before, "搜索超时后 Chrome 应被回收");
+    assert!(chrome_count() <= before, "搜索超时后 Chrome 应被回收");
 }
 
 /// 后端完整链路（无外网依赖）：spawn → navigate(data URL) → wait_for → html → eval → screenshot。

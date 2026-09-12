@@ -43,18 +43,32 @@ fn serve_html(html: &'static str) -> Url {
     Url::parse(&format!("http://127.0.0.1:{port}/")).expect("localhost URL 应合法")
 }
 
-/// 统计本工具启动的 Firefox（按临时 profile 路径特征隔离，避免与其他测试/系统进程互相干扰）。
+/// 统计本工具启动的 Firefox 实例数（按 profile 路径去重）。
+///
+/// 主进程与 content 子进程共享同一 `-profile` 路径且子进程随时启停，直接数
+/// 进程数会随子进程波动：按 profile 路径去重后的数量才是稳定的实例数。
+///
+/// 上一个测试的 Firefox 可能仍在异步退出，基线快照可能被短暂抬高，
+/// 清理后计数会跌破基线：清理断言因此用 `<= before`（判据是实例数不高于基线）。
 fn firefox_count() -> usize {
     let out = Command::new("pgrep")
-        .arg("-c")
-        .arg("-f")
+        .arg("-af")
         .arg("worbrow-firefox-profile")
         .output()
         .expect("pgrep 应可执行");
-    String::from_utf8_lossy(&out.stdout)
-        .trim()
-        .parse()
-        .unwrap_or(0)
+    const PREFIX: &str = "worbrow-firefox-profile-";
+    let mut profiles = std::collections::HashSet::new();
+    for line in String::from_utf8_lossy(&out.stdout).lines() {
+        if let Some(idx) = line.find(PREFIX) {
+            let rest = &line[idx + PREFIX.len()..];
+            let token: String = rest
+                .chars()
+                .take_while(|c| c.is_ascii_alphanumeric())
+                .collect();
+            profiles.insert(token);
+        }
+    }
+    profiles.len()
 }
 
 /// 生命周期：spawn 后 driver 离开作用域，Firefox 子进程应被清理（design.md §8）。
@@ -79,7 +93,7 @@ async fn spawn_then_drop_kills_firefox() {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    assert_eq!(firefox_count(), before, "driver drop 后 Firefox 应被清理");
+    assert!(firefox_count() <= before, "driver drop 后 Firefox 应被清理");
 }
 
 /// 显式取消：abort 持有 driver 的任务 → driver drop → Firefox 进程应被清理。
@@ -113,7 +127,7 @@ async fn abort_cancels_and_kills_browser() {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    assert_eq!(firefox_count(), before, "任务取消后 Firefox 应被清理");
+    assert!(firefox_count() <= before, "任务取消后 Firefox 应被清理");
 }
 
 /// app 超时：全流程 timeout 触发 → driver drop → Firefox 进程应被回收。
@@ -133,7 +147,7 @@ async fn search_timeout_recycles_browser() {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    assert_eq!(firefox_count(), before, "搜索超时后 Firefox 应被回收");
+    assert!(firefox_count() <= before, "搜索超时后 Firefox 应被回收");
 }
 
 /// 后端完整链路（无外网依赖）：spawn → navigate(本机 HTML) → wait_for → html → eval → screenshot。
@@ -274,7 +288,7 @@ async fn pool_reuses_same_firefox_process() {
         }
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
-    assert_eq!(firefox_count(), before, "池 Drop 后 Firefox 应被清理");
+    assert!(firefox_count() <= before, "池 Drop 后 Firefox 应被清理");
 }
 
 /// fetch 端到端（ADR-010）：本地 404 服务 → `meta.http_status` 正确上报。
