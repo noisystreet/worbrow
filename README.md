@@ -34,7 +34,7 @@ cargo run -- fetch https://example.com --format markdown --json         # Markdo
 
 Backend status: `firefox` (Marionette, hand-written protocol) and `chrome` (CDP, hand-written protocol) are both implemented; `fake` is for tests/smoke. Protocol implementation: [ADR-002](docs/adr/0002-browser-driver-protocols.md).
 
-**HTTP/HTTPS proxy (ADR-013)**: `--proxy http://host:port` (or `https://host:port`) applies to the browser launch (CDP `--proxy-server`, Marionette `network.proxy.*`) and the static SERP HTTP GET (reqwest). Invalid proxy URLs → exit 2, checked before the browser starts. Without `--proxy`, browsers use system proxy settings and the HTTP client reads `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY`. Design: [ADR-013](docs/adr/0013-proxy-support.md).
+**HTTP/HTTPS proxy (ADR-013)**: `--proxy http://host:port` (or `https://host:port`) applies to the browser launch (CDP `--proxy-server`, Marionette `network.proxy.*`) and the static SERP HTTP GET (ureq). Invalid proxy URLs → exit 2, checked before the browser starts. Without `--proxy`, browsers use system proxy settings and the HTTP client reads `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY`. Design: [ADR-013](docs/adr/0013-proxy-support.md).
 
 ### Installation
 

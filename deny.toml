@@ -17,7 +17,7 @@ allow = [
     "MPL-2.0",
     "Unicode-3.0",
     "Zlib",
-    "CDLA-Permissive-2.0", # webpki-roots（reqwest rustls，ADR-011）
+    "CDLA-Permissive-2.0", # webpki-roots（ureq rustls，ADR-011/015）
 ]
 confidence-threshold = 0.8
 

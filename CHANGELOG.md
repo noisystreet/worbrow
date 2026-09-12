@@ -4,6 +4,13 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+### Changed
+
+- **静态 SERP HTTP 客户端 reqwest → ureq（ADR-015）**：HTTP 客户端依赖闭包
+  ~135 → ~30 个 crate（编译更快、二进制更小）；行为语义不变——仅 http/https、
+  重定向 ≤10、响应体 2MB 上限、超时取页面等待预算、`--proxy` 与 `HTTP_PROXY`
+  等环境变量代理照旧生效；JSON schema / 退出码零变化
+
 ## [0.2.3] - 2026-08-31
 
 ### Added
