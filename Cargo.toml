@@ -28,7 +28,10 @@ base64 = "0.23.1"
 # default-features = false：仅保留 serde（契约序列化）与 clock（Utc::now）；
 # 去掉默认的 oldtime（遗留兼容）与 wasmbind（wasm 专属，原生编译无收益）
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock"] }
-clap = { version = "4.6.4", features = ["derive"] }
+# default-features = false 去掉 color（anstream 家族）：帮助/错误输出改为无色，
+# tracing-subscriber 的 ansi 仍用 anstyle 上色 stderr 日志；suggestions 保留（strsim
+# 已被 darling 共享，裁不掉）
+clap = { version = "4.6.4", default-features = false, features = ["std", "derive", "help", "usage", "error-context", "suggestions"] }
 futures-util = "0.3.33"
 rmcp = { version = "3.2.0", features = ["schemars", "transport-io"], optional = true }
 scraper = "0.27.0"
@@ -41,8 +44,9 @@ tokio-tungstenite = "0.30.0"
 tracing = "0.1.44"
 # default-features = false 去掉 tracing-log 桥接：项目不使用 log crate，且 LogTracer 是
 # 进程级单例（log::set_logger 二次设置会 panic），去除后 fmt().init() 不再安装 LogTracer，
-# 库被嵌入已初始化 tracing 的应用时无二次 init 风险
-tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "ansi", "env-filter", "std", "smallvec"] }
+# 库被嵌入已初始化 tracing 的应用时无二次 init 风险；env-filter 一并去掉：日志级别只用
+# 静态 LevelFilter（main.rs），省去 matchers/regex-automata/regex-syntax 编译大户
+tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "ansi", "std", "smallvec"] }
 # 静态 SERP HTTP GET（ADR-011/015）：ureq 阻塞客户端（spawn_blocking 包裹），HTTP 客户端
 # 依赖闭包远小于 reqwest（~135 → ~30 个 crate）；rustls（ring + webpki-roots）便于 musl
 # 静态链接，避免 aws-lc-rs；charset 不启用：原实现即 bytes + from_utf8_lossy，不按响应头

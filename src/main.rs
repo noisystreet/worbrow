@@ -254,16 +254,17 @@ fn mcp_main(
 /// 幂等：tracing 全局注册表只允许一次初始化（`try_init` 返回 AlreadySet 时静默跳过），
 /// 二进制的 `init_tracing` 与外部重复调用均不 panic、不破坏已有 subscriber。
 fn init_tracing(level: LogLevelArg) {
+    use tracing_subscriber::filter::LevelFilter;
     let level = match level {
         LogLevelArg::Off => return,
-        LogLevelArg::Error => "error",
-        LogLevelArg::Warn => "warn",
-        LogLevelArg::Info => "info",
-        LogLevelArg::Debug => "debug",
-        LogLevelArg::Trace => "trace",
+        LogLevelArg::Error => LevelFilter::ERROR,
+        LogLevelArg::Warn => LevelFilter::WARN,
+        LogLevelArg::Info => LevelFilter::INFO,
+        LogLevelArg::Debug => LevelFilter::DEBUG,
+        LogLevelArg::Trace => LevelFilter::TRACE,
     };
     let _ = tracing_subscriber::fmt()
         .with_writer(std::io::stderr)
-        .with_env_filter(tracing_subscriber::EnvFilter::new(level))
+        .with_max_level(level)
         .try_init();
 }
