@@ -87,6 +87,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-012](adr/0012-hub-result-kind.md) | 枢纽页 `result_kind=hub` 不计入内容型结果 | 已接受 |
 | [ADR-013](adr/0013-proxy-support.md) | HTTP/HTTPS 代理支持（`--proxy`，三处生效） | 已接受 |
 | [ADR-014](adr/0014-fetch-markdown.md) | fetch 正文 Markdown 输出（`--format markdown`） | 已接受 |
+| [ADR-015](adr/0015-replace-reqwest-with-ureq.md) | 静态 SERP HTTP 客户端 reqwest → ureq | 已接受 |
 
 ---
 
@@ -153,7 +154,7 @@ src/
     discovery.rs      # 浏览器二进制发现
     pool.rs           # MCP 会话池（ADR-007）
     fake.rs           # 测试用 FakeDriver（返回 fixture HTML）
-  http_serp.rs        # 静态 SERP HTTP GET（ADR-011，DDG html 端点）
+  http_serp.rs        # 静态 SERP HTTP GET（ADR-011/015，ureq，DDG html 端点）
   engines/
     mod.rs            # 引擎注册表：name → Box<dyn SearchProvider>
     bing.rs
@@ -187,7 +188,7 @@ clap derive 定义参数（示意）：
 | `--screenshot <path>` | path | 无 | 失败或成功时保存页面截图（调试） |
 | `--dump-html <path>` | path | 无 | 失败或 low_yield 时保存原始 HTML（调试） |
 | `--retry` | usize | 0 | 瞬时网络错误重试次数（指数退避封顶 8s，计入 timeout；ADR-008） |
-| `--proxy` | url | 无 | HTTP/HTTPS 代理（`http://host:port`/`https://host:port`，ADR-013）；CDP `--proxy-server`、Marionette `network.proxy.*`、HTTP 直抓 reqwest 三处生效 |
+| `--proxy` | url | 无 | HTTP/HTTPS 代理（`http://host:port`/`https://host:port`，ADR-013）；CDP `--proxy-server`、Marionette `network.proxy.*`、HTTP 直抓 ureq 三处生效 |
 
 子命令：`worbrow doctor`（环境自检，§10）、`worbrow list`（列出引擎）、
 `worbrow fetch <url>`（正文抓取 + 结构化提取，ADR-009，§7.1 fetch 包；

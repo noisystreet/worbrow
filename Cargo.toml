@@ -30,8 +30,6 @@ base64 = "0.23.1"
 chrono = { version = "0.4.45", default-features = false, features = ["serde", "clock"] }
 clap = { version = "4.6.4", features = ["derive"] }
 futures-util = "0.3.33"
-# 静态 SERP HTTP GET（ADR-011）；rustls-tls（ring）便于 musl 静态链接，避免 aws-lc-rs
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "gzip", "charset"] }
 rmcp = { version = "3.2.0", features = ["schemars", "transport-io"], optional = true }
 scraper = "0.27.0"
 serde = { version = "1.0.229", features = ["derive"] }
@@ -45,6 +43,11 @@ tracing = "0.1.44"
 # 进程级单例（log::set_logger 二次设置会 panic），去除后 fmt().init() 不再安装 LogTracer，
 # 库被嵌入已初始化 tracing 的应用时无二次 init 风险
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "ansi", "env-filter", "std", "smallvec"] }
+# 静态 SERP HTTP GET（ADR-011/015）：ureq 阻塞客户端（spawn_blocking 包裹），HTTP 客户端
+# 依赖闭包远小于 reqwest（~135 → ~30 个 crate）；rustls（ring + webpki-roots）便于 musl
+# 静态链接，避免 aws-lc-rs；charset 不启用：原实现即 bytes + from_utf8_lossy，不按响应头
+# charset 解码
+ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
 url = "2.5.8"
 
 [dev-dependencies]

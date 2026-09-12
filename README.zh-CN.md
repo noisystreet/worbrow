@@ -38,7 +38,7 @@ cargo run -- fetch https://example.com --format markdown --json         # Markdo
 `fake` 供测试/冒烟。协议实现见 [ADR-002](docs/adr/0002-browser-driver-protocols.md)。
 
 **HTTP/HTTPS 代理（ADR-013）**：`--proxy http://host:port`（或 `https://host:port`）同时作用于
-浏览器启动（CDP `--proxy-server`、Marionette `network.proxy.*`）与静态 SERP HTTP 直抓（reqwest）；
+浏览器启动（CDP `--proxy-server`、Marionette `network.proxy.*`）与静态 SERP HTTP 直抓（ureq）；
 非法代理 URL → exit 2（启动浏览器前校验）。不传 `--proxy` 时，浏览器走系统代理，
 HTTP 客户端读 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY`/`NO_PROXY`。设计见 [ADR-013](docs/adr/0013-proxy-support.md)。
 

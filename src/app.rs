@@ -17,7 +17,7 @@ use crate::domain::{
 };
 use crate::engines;
 use crate::error::Error;
-use crate::http_serp::{HtmlGet, ReqwestHtmlGet};
+use crate::http_serp::{HtmlGet, UreqHtmlGet};
 use crate::ports::{BrowserDriver, SearchProvider};
 
 /// 低结果阈值：结果数低于该值时 `meta.low_yield = true`（design.md §10.4）。
@@ -132,13 +132,13 @@ pub struct Config {
     filetype: Option<String>,
     /// HTTP/HTTPS 代理（`--proxy <url>`；http/https scheme）；`None` = 直连/系统代理。
     /// 传递到浏览器启动参数（CDP `--proxy-server` / Marionette `network.proxy.*`）与
-    /// 静态 SERP HTTP 客户端（reqwest Proxy）；design.md §14 开放问题 #2 落地（ADR-013）。
+    /// 静态 SERP HTTP 客户端（ureq Proxy，ADR-015）；design.md §14 开放问题 #2 落地（ADR-013）。
     proxy: Option<String>,
     /// 测试注入用；生产为 `None`，走 `drivers::resolve`。
     driver: Option<Box<dyn BrowserDriver>>,
     /// 外部引擎扩展点：注入自定义 `SearchProvider` 时优先于 `engine` 注册表；生产为 `None`。
     provider: Option<Box<dyn SearchProvider>>,
-    /// 静态 SERP HTTP GET（ADR-011）；`None` = 生产 [`crate::http_serp::ReqwestHtmlGet`]。
+    /// 静态 SERP HTTP GET（ADR-011）；`None` = 生产 [`crate::http_serp::UreqHtmlGet`]。
     html_get: Option<Arc<dyn crate::http_serp::HtmlGet>>,
     /// 瞬时网络错误重试次数（`--retry <n>`；指数退避，封顶）。0 = 不重试（默认）。
     retry: usize,
@@ -1050,7 +1050,7 @@ async fn try_static_http(
 ) -> Option<(String, bool, Vec<SearchResult>)> {
     let fetched = match html_get {
         Some(client) => client.get(url, wait_budget).await,
-        None => ReqwestHtmlGet::new(proxy).get(url, wait_budget).await,
+        None => UreqHtmlGet::new(proxy).get(url, wait_budget).await,
     };
     match fetched {
         Ok(html) => match provider.parse(&html) {
