@@ -4,6 +4,8 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-21
+
 ### Changed
 
 - **静态 SERP HTTP 客户端 reqwest → ureq（ADR-015）**：HTTP 客户端依赖闭包
@@ -14,6 +16,12 @@ This file records user-visible changes (Keep a Changelog style).
 - **依赖裁剪**：tracing-subscriber 去 `env-filter`（日志级别本就只用静态
   `LevelFilter`，省去 matchers/regex-syntax 编译大户）、clap 去 `color`
   （帮助/错误输出不再着色，stderr 日志着色不受影响）；依赖闭包 232 → 221 项
+
+### Security
+
+- **依赖安全修复（RUSTSEC-2026-0285）**：静态 SERP HTTP 直抓链路的 rustls
+  0.23.43 → 0.23.45（TLS 1.3 握手消息可跨加密层级边界被接受）；仅锁文件升级，
+  行为语义 / JSON 契约 / 退出码零变化
 
 ## [0.2.3] - 2026-08-31
 
