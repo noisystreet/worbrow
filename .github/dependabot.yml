@@ -25,3 +25,8 @@ updates:
       all:
         patterns:
           - "*"
+    ignore:
+      # dtolnay/rust-toolchain 的 ref 是 Rust 工具链版本（ci.yml 里钉的是 MSRV 1.97.0），
+      # 不是 action 版本。Dependabot 会把它当版本号往上顶（如 1.120.0），
+      # 导致 MSRV job 因工具链不存在而 404 失败（PR #55），故整条忽略。
+      - dependency-name: "dtolnay/rust-toolchain"
