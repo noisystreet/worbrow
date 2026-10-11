@@ -15,7 +15,7 @@ use std::time::Duration;
 use rmcp::{
     ServerHandler, ServiceExt,
     handler::server::wrapper::Parameters,
-    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerInfo},
+    model::{CallToolResult, ContentBlock, ServerCapabilities, ServerConfig},
     schemars, tool, tool_handler, tool_router,
 };
 use tokio::io::{AsyncRead, ReadBuf};
@@ -658,8 +658,8 @@ fn format_outcome(outcome: &app::Outcome, compact: bool) -> String {
 
 #[tool_handler(router = Self::tool_router())]
 impl ServerHandler for SearchServer {
-    fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
+    fn get_info(&self) -> ServerConfig {
+        ServerConfig::new(ServerCapabilities::builder().enable_tools().build()).with_instructions(
             "Drives local headless browsers to run search-engine searches and page fetches. \
              web_search returns JSON text: success contains results/meta, failure contains error (code/message), \
              schema_version=1; fetch_page fetches an explicit URL and returns cleaned body text plus optional structured fields.",
