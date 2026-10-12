@@ -29,7 +29,10 @@ pub(crate) trait HtmlGet: Send + Sync {
 /// `None` 时直连并读取 `HTTP_PROXY`/`HTTPS_PROXY`/`ALL_PROXY` 系统代理环境变量
 /// （`NO_PROXY` 按域豁免随之生效）。同一代理配置复用同一 agent
 /// （连接池 + TLS 会话缓存跨请求生效）。
-pub(crate) struct UreqHtmlGet(Arc<ureq::Agent>);
+///
+/// 内层为 `None` 表示构建期无可用 rustls `CryptoProvider`（ADR-016，`tls-none` 且进程
+/// 未 `install_default`）：`get` 返回 [`Error::Network`] 交由调用方回退浏览器（不 panic）。
+pub(crate) struct UreqHtmlGet(Option<Arc<ureq::Agent>>);
 
 impl UreqHtmlGet {
     /// 取用按代理缓存的 agent；代理为 http/https URL（非法时告警并忽略，保持"尽力"语义）。
@@ -41,9 +44,15 @@ impl UreqHtmlGet {
 #[async_trait]
 impl HtmlGet for UreqHtmlGet {
     async fn get(&self, url: &Url, timeout: Duration) -> Result<String, Error> {
+        // 无 provider（ADR-016）：ureq 以 rustls-no-provider 编译，https 直抓不可用，
+        // 回退浏览器；此错误被 app.rs 的 try_static_http 视为"HTTP 失败"处理。
+        let Some(agent) = self.0.clone() else {
+            return Err(Error::Network(
+                "no rustls CryptoProvider for HTTP SERP; falling back to browser".to_string(),
+            ));
+        };
         // ureq 是阻塞 I/O（ADR-015）：整次请求（连接/重定向/读体）放入 tokio 阻塞线程池，
         // 不占用运行时工作线程；超时按请求注入（timeout_global），到点即失败。
-        let agent = Arc::clone(&self.0);
         let url = url.clone();
         tokio::task::spawn_blocking(move || get_blocking(&agent, &url, timeout))
             .await
@@ -53,20 +62,24 @@ impl HtmlGet for UreqHtmlGet {
 
 /// 按代理配置缓存的 agent 注册表：避免每次搜索重建（重建会丢连接池/TLS 会话）。
 /// 代理是进程级配置（CLI/MCP 启动参数），数量有限，无容量淘汰需求。
-fn agent_for(proxy: Option<&str>) -> Arc<ureq::Agent> {
+///
+/// 返回 `None` 表示构建期无可用 `CryptoProvider`（ADR-016），调用方据此回退浏览器。
+fn agent_for(proxy: Option<&str>) -> Option<Arc<ureq::Agent>> {
     static AGENTS: OnceLock<Mutex<HashMap<Option<String>, Arc<ureq::Agent>>>> = OnceLock::new();
+    let provider = tls_provider()?;
     let key = proxy.map(str::to_owned);
     match AGENTS.get_or_init(|| Mutex::new(HashMap::new())).lock() {
-        Ok(mut map) => map
-            .entry(key.clone())
-            .or_insert_with(|| Arc::new(build_agent(key.as_deref())))
-            .clone(),
+        Ok(mut map) => Some(
+            map.entry(key.clone())
+                .or_insert_with(|| Arc::new(build_agent(key.as_deref(), provider)))
+                .clone(),
+        ),
         // 锁中毒兜底：退化为临时 agent（不阻塞搜索，仅丢失连接复用）
-        Err(_) => Arc::new(build_agent(proxy)),
+        Err(_) => Some(Arc::new(build_agent(proxy, provider))),
     }
 }
 
-fn build_agent(proxy: Option<&str>) -> ureq::Agent {
+fn build_agent(proxy: Option<&str>, provider: Arc<rustls::crypto::CryptoProvider>) -> ureq::Agent {
     // `None` 时读环境代理（对齐原 reqwest 默认行为，ADR-013）；显式代理非法时告警并
     // 退回环境代理，保持"尽力"语义。
     let proxy = match proxy {
@@ -84,8 +97,45 @@ fn build_agent(proxy: Option<&str>) -> ureq::Agent {
         // 重定向上限 10 与原 reqwest `Policy::limited(10)` 对齐（ADR-011）。
         .max_redirects(10)
         .proxy(proxy)
+        // 显式注入 rustls provider（ADR-016）：ureq 以 rustls-no-provider 编译，不会自行
+        // 从 feature 选 provider，未注入时 https 会 panic（ureq::tls::rustls::build_config）。
+        .tls_config(tls_config(provider))
         .build()
         .new_agent()
+}
+
+/// rustls TLS 配置：显式指定 provider（ADR-016）。ureq 以 `rustls-no-provider` 编译，
+/// 不会自行从 feature 选 provider，必须显式注入。
+fn tls_config(provider: Arc<rustls::crypto::CryptoProvider>) -> ureq::tls::TlsConfig {
+    ureq::tls::TlsConfig::builder()
+        .provider(ureq::tls::TlsProvider::Rustls)
+        // ureq 的 `unversioned_*` API 不保证 semver，随 ureq minor 走（ADR-016）。
+        .unversioned_rustls_crypto_provider(provider)
+        .build()
+}
+
+/// 选定进程使用的 rustls `CryptoProvider`（ADR-016）：优先编译期 feature 自带的 provider
+/// （`tls-ring` 优先、其次 `tls-aws-lc`；`--all-features` 同时开启二者时确定性地取 ring），
+/// 否则（`tls-none`）用进程 `CryptoProvider::install_default` 安装的默认值。全部缺失返回
+/// `None`，由调用方回退浏览器（不 panic）。
+fn tls_provider() -> Option<Arc<rustls::crypto::CryptoProvider>> {
+    bundled_provider().or_else(|| rustls::crypto::CryptoProvider::get_default().cloned())
+}
+
+/// 编译期自带 provider（`tls-ring` 优先）；`tls-none` 时无自带 provider。
+#[cfg(feature = "tls-ring")]
+fn bundled_provider() -> Option<Arc<rustls::crypto::CryptoProvider>> {
+    Some(Arc::new(rustls::crypto::ring::default_provider()))
+}
+
+#[cfg(all(feature = "tls-aws-lc", not(feature = "tls-ring")))]
+fn bundled_provider() -> Option<Arc<rustls::crypto::CryptoProvider>> {
+    Some(Arc::new(rustls::crypto::aws_lc_rs::default_provider()))
+}
+
+#[cfg(all(not(feature = "tls-ring"), not(feature = "tls-aws-lc")))]
+fn bundled_provider() -> Option<Arc<rustls::crypto::CryptoProvider>> {
+    None
 }
 
 /// 阻塞执行一次 GET（仅在 `spawn_blocking` 内调用）。
@@ -198,6 +248,11 @@ mod tests {
     /// 配置代理后请求应**经代理**发出：假代理按 ureq 的 CONNECT 隧道语义工作
     /// （对 http/https 代理一律先 CONNECT，reqwest 的 absolute-form 直发不存在于 ureq）：
     /// 先应答 `CONNECT host:port`，再在隧道内应答 origin-form 的 `GET /path`。
+    ///
+    /// 需真实 provider 才能构造 agent（`UreqHtmlGet::new → agent_for → tls_provider`）；`tls-none`
+    /// 且进程未 `install_default` 时按设计无 agent（回退浏览器），本用例无从构造，故仅在编译期
+    /// 自带 provider 时运行（ADR-016）。
+    #[cfg(any(feature = "tls-ring", feature = "tls-aws-lc"))]
     #[tokio::test]
     async fn get_html_uses_proxy_when_configured() {
         use std::sync::Arc as StdArc;
@@ -252,6 +307,7 @@ mod tests {
 
     /// 读到请求头结束（`\r\n\r\n`）：请求可能分多个 TCP 段到达，单次 read 可能只拿到半包，
     /// 未读完就关闭连接会向对端回 RST。
+    #[cfg(any(feature = "tls-ring", feature = "tls-aws-lc"))]
     async fn read_request_head(sock: &mut tokio::net::TcpStream) -> String {
         let mut buf = Vec::new();
         let mut chunk = [0u8; 1024];

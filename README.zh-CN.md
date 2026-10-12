@@ -228,7 +228,13 @@ fn main() -> Result<(), worbrow::Error> {
   `tokio::task::block_in_place(|| handle.block_on(run(cfg)))`（需 multi-thread runtime）
 
 - **依赖面**：库消费可用 `default-features = false` 去掉 MCP 依赖（`rmcp`）
-  ——`mcp` feature 默认启用仅为服务 CLI 二进制
+  ——`mcp` feature 默认启用仅为服务 CLI 二进制。注意这同时会去掉默认的 `tls-ring` provider，
+  需另行选择（`tls-aws-lc`/`tls-none`，见下）
+- **TLS provider**（ADR-016）：`ureq` 以 `rustls-no-provider` 构建，provider 需显式选择——
+  `tls-ring`（默认，musl 静态链接友好）/ `tls-aws-lc`（与 `reqwest`/`aws-lc-rs` 依赖对齐）/
+  `tls-none`（用进程 `CryptoProvider::install_default` 的默认值，缺失时回退浏览器）。同时依赖
+  `reqwest` 时，`default-features = false, features = ["tls-aws-lc"]` 可避免双套编译 TLS
+  backend（`ring` + `aws-lc-sys`）及其 `cmake` 构建依赖（issue #62）
 - **扩展**：自定义引擎实现 [`SearchProvider`](https://docs.rs/worbrow/latest/worbrow/trait.SearchProvider.html)
   并经 `Config::with_provider` 注入；自定义浏览器后端实现 `BrowserDriver` 并经
   `Config::with_driver` 注入

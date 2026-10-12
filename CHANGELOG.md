@@ -4,6 +4,21 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+### Changed
+
+- **rustls TLS provider 改由下游 feature 选择（ADR-016，issue #62）**：ureq 改用
+  `rustls-no-provider`（不再用其 `rustls` feature——它会强制 `rustls/ring`），新增
+  `tls-ring`（默认，musl 静态链接友好）/ `tls-aws-lc`（与 reqwest 的 aws-lc-rs 对齐）/
+  `tls-none` 三个 feature，agent 构造时显式注入 provider。下游同时依赖 reqwest 时可用
+  `default-features = false, features = ["tls-aws-lc"]` 避免双套编译 TLS backend
+  （`ring` + `aws-lc-sys`）及其 `cmake` 构建依赖；默认行为与 JSON 契约 / 退出码零变化
+
+### Fixed
+
+- **无可用 rustls provider 时优雅回退（ADR-016）**：`tls-none` 且进程未
+  `CryptoProvider::install_default` 时，静态 SERP HTTP 直抓返回 `Error::Network` 并回退
+  浏览器，不再 panic
+
 ## [0.2.4] - 2026-09-21
 
 ### Changed
