@@ -48,10 +48,17 @@ tracing = "0.1.44"
 # 静态 LevelFilter（main.rs），省去 matchers/regex-automata/regex-syntax 编译大户
 tracing-subscriber = { version = "0.3.23", default-features = false, features = ["fmt", "ansi", "std", "smallvec"] }
 # 静态 SERP HTTP GET（ADR-011/015）：ureq 阻塞客户端（spawn_blocking 包裹），HTTP 客户端
-# 依赖闭包远小于 reqwest（~135 → ~30 个 crate）；rustls（ring + webpki-roots）便于 musl
-# 静态链接，避免 aws-lc-rs；charset 不启用：原实现即 bytes + from_utf8_lossy，不按响应头
-# charset 解码
-ureq = { version = "3", default-features = false, features = ["rustls", "gzip"] }
+# 依赖闭包远小于 reqwest（~135 → ~30 个 crate）；charset 不启用：原实现即
+# bytes + from_utf8_lossy，不按响应头 charset 解码。
+# rustls-no-provider：只接入 rustls、不绑定 ring/aws-lc-rs（ADR-016），provider 由下方的
+# tls-ring/tls-aws-lc feature 选择后显式注入；rustls-webpki-roots 提供内置根证书（musl
+# 静态链接友好）。注：不能用 ureq 的 `rustls` feature——它强制 `rustls/ring`，会让下游
+# 与 reqwest(aws-lc-rs) 因 feature 统一而双套编译并拖入 cmake（issue #62）。
+ureq = { version = "3", default-features = false, features = ["rustls-no-provider", "rustls-webpki-roots", "gzip"] }
+# rustls：仅用于 provider 选择（tls-ring/tls-aws-lc）与显式注入 ureq（ADR-016）。ureq 已以
+# rustls-no-provider 拉入同一 rustls，此处不增依赖体积；default-features = false 避免默认
+# 启用 aws-lc-rs（把 provider 选择权完全交给 feature）
+rustls = { version = "0.23", default-features = false }
 url = "2.5.8"
 
 [dev-dependencies]
@@ -60,8 +67,17 @@ pretty_assertions = "1.4.1"
 
 [features]
 # MCP 服务器（stdio）支持：`worbrow mcp` 子命令；默认启用
-default = ["mcp"]
+default = ["mcp", "tls-ring"]
 mcp = ["dep:rmcp"]
+# TLS provider 选择（ADR-016，issue #62）：rustls 的 provider feature 只能"加"不能"减"，
+# 故由 worbrow 显式暴露，下游可 `default-features = false` 后按需选择，避免与 reqwest 的
+# aws-lc-rs 因 feature 统一而双套编译（ring + aws-lc-sys，并拖入 cmake）。
+# tls-ring：默认，静态链接友好（musl）；tls-aws-lc：与 reqwest(aws-lc-rs) 对齐；
+# tls-none：不捆绑 provider，用进程 `CryptoProvider::install_default` 的默认值，缺失时
+# 跳过 HTTP 直抓、回退浏览器（不 panic）。
+tls-ring = ["rustls/ring"]
+tls-aws-lc = ["rustls/aws-lc-rs"]
+tls-none = []
 
 # Debian 打包（`make deb` / CI，cargo-deb 3.x）：发布形态启用 mcp feature
 [package.metadata.deb]

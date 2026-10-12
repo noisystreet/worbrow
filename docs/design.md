@@ -88,6 +88,7 @@ ADR 以独立文件维护在 `docs/adr/`，本节省略为索引；新决策追�
 | [ADR-013](adr/0013-proxy-support.md) | HTTP/HTTPS 代理支持（`--proxy`，三处生效） | 已接受 |
 | [ADR-014](adr/0014-fetch-markdown.md) | fetch 正文 Markdown 输出（`--format markdown`） | 已接受 |
 | [ADR-015](adr/0015-replace-reqwest-with-ureq.md) | 静态 SERP HTTP 客户端 reqwest → ureq | 已接受 |
+| [ADR-016](adr/0016-tls-provider-selection.md) | rustls TLS provider 由下游 feature 选择（issue #62） | 已接受 |
 
 ---
 
