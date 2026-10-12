@@ -4,6 +4,8 @@ This file records user-visible changes (Keep a Changelog style).
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-10-12
+
 ### Changed
 
 - **rustls TLS provider 改由下游 feature 选择（ADR-016，issue #62）**：ureq 改用
